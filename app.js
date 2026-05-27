@@ -50,6 +50,7 @@ const shareLink = document.getElementById('shareLink');
 const remoteQueue = document.getElementById('remoteQueue');
 const remoteQueuePanel = document.getElementById('remoteQueuePanel');
 const clearQueueBtn = document.getElementById('clearQueueBtn');
+const clearQueueBtnTop = document.getElementById('clearQueueBtnTop');
 
 let compositionImage = null;
 let aiSketchImage = null;
@@ -502,7 +503,7 @@ async function generateAiSketch() {
     }
 }
 
-clearQueueBtn.onclick = () => {
+clearQueueBtn.onclick = clearQueueBtnTop.onclick = () => {
     remoteQueue.innerHTML = '<p style="font-size: 0.8rem; margin: 0;">No incoming jobs yet.</p>';
     appendLog('Remote queue cleared.');
 };
