@@ -418,8 +418,11 @@
 
             <!-- Remote Queue (Incoming) -->
             <div id="remoteQueuePanel" class="panel hidden">
-                <label>Incoming Prints <span class="badge badge-live">Live</span></label>
-                <div id="remoteQueue" style="display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow: auto;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <label style="margin: 0;">Incoming Prints <span class="badge badge-live">Live</span></label>
+                    <button id="clearQueueBtn" class="secondary" style="padding: 2px 10px; font-size: 0.7rem;">Clear All</button>
+                </div>
+                <div id="remoteQueue" style="display: flex; flex-direction: column; gap: 8px; max-height: 400px; overflow: auto;">
                     <p style="font-size: 0.8rem; margin: 0;">No incoming jobs yet.</p>
                 </div>
             </div>

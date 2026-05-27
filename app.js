@@ -49,6 +49,7 @@ const sessionInfo = document.getElementById('sessionInfo');
 const shareLink = document.getElementById('shareLink');
 const remoteQueue = document.getElementById('remoteQueue');
 const remoteQueuePanel = document.getElementById('remoteQueuePanel');
+const clearQueueBtn = document.getElementById('clearQueueBtn');
 
 let compositionImage = null;
 let aiSketchImage = null;
@@ -487,9 +488,18 @@ async function generateAiSketch() {
     }
 }
 
+clearQueueBtn.onclick = () => {
+    remoteQueue.innerHTML = '<p style="font-size: 0.8rem; margin: 0;">No incoming jobs yet.</p>';
+    appendLog('Remote queue cleared.');
+};
+
 // Event Listeners
 connectBtn.onclick = () => printerApi.connect();
-disconnectBtn.onclick = () => printerApi.disconnect();
+disconnectBtn.onclick = () => {
+    printerApi.disconnect();
+    printerApi.isBusy = false; // Force reset busy state on disconnect
+    setStatus('Printer disconnected and state reset.');
+};
 printBtn.onclick = () => {
     if (isGuest) {
         const reader = new FileReader();
