@@ -130,43 +130,41 @@ const printerApi = {
         try {
             const raster = renderComposition();
             
-            setStatus('Initializing hardware...');
-            // 1. Enhanced Handshake with High Energy (Heat)
+            setStatus('Handshaking...');
+            // EXACT sequence from successful Cyan button test
             const handshake = [
                 new Uint8Array([0x10, 0xFF, 0xF1, 0x03]), // Wake
-                new Uint8Array([0x1B, 0x40]),             // Reset
-                new Uint8Array([0x1F, 0x11, 0x02, 0x03]), // FORCE DARK DENSITY
-                new Uint8Array([0x1F, 0x11, 0x51])        // Start Mode
+                new Uint8Array([0x10, 0xFF, 0x20, 0xF1]), // Query Firmware
+                new Uint8Array([0x10, 0xFF, 0x30, 0x11]), // Query Battery
+                new Uint8Array([0x1B, 0x40])              // Reset
             ];
             for (const cmd of handshake) {
                 await writePacket(this.characteristic, cmd);
-                await new Promise(r => setTimeout(r, 200));
+                await new Promise(r => setTimeout(r, 150));
             }
 
-            setStatus('Streaming to head...');
+            setStatus('Streaming image...');
             // 2. Raster Header (384 wide = 48 bytes)
-            const header = new Uint8Array([0x1D, 0x76, 0x30, 0x00, 48, 0x00, raster.rows & 0xFF, (raster.rows >> 8) & 0xFF]);
+            const header = new Uint8Array([0x1D, 0x76, 0x30, 0x00, 0x30, 0x00, raster.rows & 0xFF, (raster.rows >> 8) & 0xFF]);
             await writePacket(this.characteristic, header);
-            await new Promise(r => setTimeout(r, 150));
+            await new Promise(r => setTimeout(r, 100));
 
-            // 3. Strict Line-by-line Stream
+            // 3. Line-by-line Data Stream (20ms from working test)
             for (let y = 0; y < raster.rows; y++) {
                 const row = raster.data.slice(y * raster.bytesPerRow, (y + 1) * raster.bytesPerRow);
                 await writePacket(this.characteristic, row);
-                // 30ms is the most stable delay for high-density printing
-                await new Promise(r => setTimeout(r, 30)); 
+                await new Promise(r => setTimeout(r, 20)); 
             }
 
-            setStatus('Finalizing paper...');
-            // 4. Finalize & Feed
+            setStatus('Finalizing...');
+            // 4. Finalize
             const finalize = [
                 new Uint8Array([0x1B, 0x4A, 0x40]),       // Paper Feed 64 dots
-                new Uint8Array([0x1F, 0x11, 0x50]),       // Stop Mode
                 new Uint8Array([0x10, 0xFF, 0xF1, 0x45])  // Sleep
             ];
             for (const cmd of finalize) {
                 await writePacket(this.characteristic, cmd);
-                await new Promise(r => setTimeout(r, 200));
+                await new Promise(r => setTimeout(r, 150));
             }
 
             setStatus('Print complete!');
