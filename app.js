@@ -120,51 +120,43 @@ const printerApi = {
         this.isBusy = true;
         try {
             const density = parseInt(densityInput?.value) || 1;
-            const labelMode = labelModeInput ? labelModeInput.checked : true;
-            
             const raster = renderComposition();
-            const blackCoverage = calculateBlackCoverage(raster.data, raster.width * raster.rows);
-            const safeDensity = blackCoverage >= HEAVY_COVERAGE_THRESHOLD ? Math.min(density, 1) : density;
-            const streamDelayMs = blackCoverage >= HEAVY_COVERAGE_THRESHOLD ? 120 : PACKET_DELAY_MS;
             
-            const rasterHeader = new Uint8Array([
-                0x1D, 0x76, 0x30, 0x00,
-                raster.bytesPerRow & 0xFF, (raster.bytesPerRow >> 8) & 0xFF,
-                raster.rows & 0xFF, (raster.rows >> 8) & 0xFF,
-            ]);
-            
-            // Combine header and data into one job to ensure packet alignment
-            const fullJob = new Uint8Array(rasterHeader.length + raster.data.length);
-            fullJob.set(rasterHeader);
-            fullJob.set(raster.data, rasterHeader.length);
-
-            const beginCommands = [
-                new Uint8Array([0x10, 0xFF, 0xF1, 0x03]),
-                new Uint8Array(12),
-                new Uint8Array([0x10, 0xFF, 0x10, 0x00, safeDensity]),
+            setStatus('Handshaking...');
+            // 1. Handshake Sequence (as seen in successful test)
+            const handshake = [
+                new Uint8Array([0x10, 0xFF, 0xF1, 0x03]), // Wake
+                new Uint8Array([0x10, 0xFF, 0x20, 0xF1]), // Query
+                new Uint8Array([0x1B, 0x40])              // Reset
             ];
-            
-            const endCommands = labelMode
-                ? [new Uint8Array([0x1D, 0x0C]), new Uint8Array([0x1F, 0x11, 0x50]), new Uint8Array([0x10, 0xFF, 0xF1, 0x45])]
-                : [new Uint8Array([0x1B, 0x4A, 0x50]), new Uint8Array([0x10, 0xFF, 0xF1, 0x45])];
+            for (const cmd of handshake) {
+                await writePacket(this.characteristic, cmd);
+                await new Promise(r => setTimeout(r, 150));
+            }
 
-            setStatus('Sending print job...');
-            for (const cmd of beginCommands) {
+            setStatus('Streaming image...');
+            // 2. Raster Header (384 wide = 48 bytes)
+            const header = new Uint8Array([0x1D, 0x76, 0x30, 0x00, 0x30, 0x00, raster.rows & 0xFF, (raster.rows >> 8) & 0xFF]);
+            await writePacket(this.characteristic, header);
+            await new Promise(r => setTimeout(r, 100));
+
+            // 3. Line-by-line Data Stream
+            for (let y = 0; y < raster.rows; y++) {
+                const row = raster.data.slice(y * raster.bytesPerRow, (y + 1) * raster.bytesPerRow);
+                await writePacket(this.characteristic, row);
+                await new Promise(r => setTimeout(r, 20)); // 20ms line delay for hardware sync
+            }
+
+            // 4. Finalize
+            const finalize = [
+                new Uint8Array([0x1B, 0x4A, 0x40]),       // Paper Feed
+                new Uint8Array([0x10, 0xFF, 0xF1, 0x45])  // Sleep
+            ];
+            for (const cmd of finalize) {
                 await writePacket(this.characteristic, cmd);
-                await new Promise(r => setTimeout(r, 80));
+                await new Promise(r => setTimeout(r, 150));
             }
-            if (labelMode) {
-                await writePacket(this.characteristic, new Uint8Array([0x1F, 0x11, 0x51]));
-                await new Promise(r => setTimeout(r, 80));
-            }
-            
-            // Send the chunked job
-            await writeChunks(this.characteristic, fullJob, streamDelayMs);
-            
-            for (const cmd of endCommands) {
-                await writePacket(this.characteristic, cmd);
-                await new Promise(r => setTimeout(r, 80));
-            }
+
             setStatus('Print complete!');
         } catch (e) {
             setStatus(`Print error: ${e.message}`);
@@ -180,22 +172,21 @@ const printerApi = {
         this.isBusy = true;
         
         try {
-            setStatus("Sending test text...");
-            // D21 Simple Text Command Sequence
+            setStatus("Starting test handshake...");
             const encoder = new TextEncoder();
             const textData = encoder.encode(text + "\n\n\n");
             
             const cmds = [
                 new Uint8Array([0x10, 0xFF, 0xF1, 0x03]), // Wake
-                new Uint8Array([0x1B, 0x40]),             // Reset/Initialize
-                textData,                                 // The payload
-                new Uint8Array([0x1D, 0x0C]),             // Feed/Cut
+                new Uint8Array([0x1B, 0x40]),             // Reset
+                textData,                                 // Payload
+                new Uint8Array([0x1B, 0x4A, 0x40]),       // Feed
                 new Uint8Array([0x10, 0xFF, 0xF1, 0x45])  // Sleep
             ];
 
             for (const cmd of cmds) {
                 await writePacket(this.characteristic, cmd);
-                await new Promise(r => setTimeout(r, 100));
+                await new Promise(r => setTimeout(r, 150));
             }
             setStatus("Test print sent!");
         } catch (e) {
