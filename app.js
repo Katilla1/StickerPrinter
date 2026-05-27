@@ -147,13 +147,22 @@ const printerApi = {
                 : [new Uint8Array([0x1B, 0x4A, 0x50]), new Uint8Array([0x10, 0xFF, 0xF1, 0x45])];
 
             setStatus('Sending print job...');
-            for (const cmd of beginCommands) await writePacket(this.characteristic, cmd);
-            if (labelMode) await writePacket(this.characteristic, new Uint8Array([0x1F, 0x11, 0x51]));
+            for (const cmd of beginCommands) {
+                await writePacket(this.characteristic, cmd);
+                await new Promise(r => setTimeout(r, 80));
+            }
+            if (labelMode) {
+                await writePacket(this.characteristic, new Uint8Array([0x1F, 0x11, 0x51]));
+                await new Promise(r => setTimeout(r, 80));
+            }
             
             // Send the chunked job
             await writeChunks(this.characteristic, fullJob, streamDelayMs);
             
-            for (const cmd of endCommands) await writePacket(this.characteristic, cmd);
+            for (const cmd of endCommands) {
+                await writePacket(this.characteristic, cmd);
+                await new Promise(r => setTimeout(r, 80));
+            }
             setStatus('Print complete!');
         } catch (e) {
             setStatus(`Print error: ${e.message}`);
@@ -606,6 +615,15 @@ async function writeChunks(char, data, delay) {
 }
 
 async function writePacket(char, data) {
-    if (char.properties.write) await char.writeValueWithResponse(data);
-    else await char.writeValueWithoutResponse(data);
+    if (char.properties.write) {
+        if (typeof char.writeValueWithResponse === 'function') {
+            await char.writeValueWithResponse(data);
+        } else {
+            await char.writeValue(data);
+        }
+    } else if (char.properties.writeWithoutResponse) {
+        await char.writeValueWithoutResponse(data);
+    } else {
+        throw new Error('No write properties found on characteristic.');
+    }
 }
