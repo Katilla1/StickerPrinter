@@ -65,6 +65,7 @@ const printerApi = {
     server: null,
     service: null,
     characteristic: null,
+    isBusy: false,
 
     async connect() {
         if (!navigator.bluetooth) throw new Error('Web Bluetooth not supported.');
@@ -97,6 +98,7 @@ const printerApi = {
         this.server = null;
         this.service = null;
         this.characteristic = null;
+        this.isBusy = false;
     },
 
     async disconnect() {
@@ -105,41 +107,54 @@ const printerApi = {
     },
 
     async printComposition() {
+        if (this.isBusy) {
+            setStatus("Printer busy, please wait...");
+            return;
+        }
+        
         if (!this.characteristic) await this.connect();
+        
+        this.isBusy = true;
+        try {
+            const density = parseInt(densityInput?.value) || 1;
+            const labelMode = labelModeInput ? labelModeInput.checked : true;
+            
+            const raster = renderComposition();
+            const blackCoverage = calculateBlackCoverage(raster.data, raster.width * raster.rows);
+            const safeDensity = blackCoverage >= HEAVY_COVERAGE_THRESHOLD ? Math.min(density, 1) : density;
+            const streamDelayMs = blackCoverage >= HEAVY_COVERAGE_THRESHOLD ? 120 : PACKET_DELAY_MS;
+            
+            const rasterHeader = new Uint8Array([
+                0x1D, 0x76, 0x30, 0x00,
+                raster.bytesPerRow & 0xFF, (raster.bytesPerRow >> 8) & 0xFF,
+                raster.rows & 0xFF, (raster.rows >> 8) & 0xFF,
+            ]);
+            
+            const beginCommands = [
+                new Uint8Array([0x10, 0xFF, 0xF1, 0x03]),
+                new Uint8Array(12),
+                new Uint8Array([0x10, 0xFF, 0x10, 0x00, safeDensity]),
+            ];
+            
+            const endCommands = labelMode
+                ? [new Uint8Array([0x1D, 0x0C]), new Uint8Array([0x1F, 0x11, 0x50]), new Uint8Array([0x10, 0xFF, 0xF1, 0x45])]
+                : [new Uint8Array([0x1B, 0x4A, 0x50]), new Uint8Array([0x10, 0xFF, 0xF1, 0x45])];
 
-        const density = parseInt(densityInput?.value) || 1;
-        const labelMode = labelModeInput ? labelModeInput.checked : true;
-        
-        const raster = renderComposition();
-        const blackCoverage = calculateBlackCoverage(raster.data, raster.width * raster.rows);
-        const safeDensity = blackCoverage >= HEAVY_COVERAGE_THRESHOLD ? Math.min(density, 1) : density;
-        const streamDelayMs = blackCoverage >= HEAVY_COVERAGE_THRESHOLD ? 120 : PACKET_DELAY_MS;
-        
-        const rasterHeader = new Uint8Array([
-            0x1D, 0x76, 0x30, 0x00,
-            raster.bytesPerRow & 0xFF, (raster.bytesPerRow >> 8) & 0xFF,
-            raster.rows & 0xFF, (raster.rows >> 8) & 0xFF,
-        ]);
-        
-        const beginCommands = [
-            new Uint8Array([0x10, 0xFF, 0xF1, 0x03]),
-            new Uint8Array(12),
-            new Uint8Array([0x10, 0xFF, 0x10, 0x00, safeDensity]),
-        ];
-        
-        const endCommands = labelMode
-            ? [new Uint8Array([0x1D, 0x0C]), new Uint8Array([0x1F, 0x11, 0x50]), new Uint8Array([0x10, 0xFF, 0xF1, 0x45])]
-            : [new Uint8Array([0x1B, 0x4A, 0x50]), new Uint8Array([0x10, 0xFF, 0xF1, 0x45])];
-
-        setStatus('Sending print job...');
-        for (const cmd of beginCommands) await writePacket(this.characteristic, cmd);
-        if (labelMode) await writePacket(this.characteristic, new Uint8Array([0x1F, 0x11, 0x51]));
-        
-        await writePacket(this.characteristic, rasterHeader);
-        await writeChunks(this.characteristic, raster.data, streamDelayMs);
-        
-        for (const cmd of endCommands) await writePacket(this.characteristic, cmd);
-        setStatus('Print complete!');
+            setStatus('Sending print job...');
+            for (const cmd of beginCommands) await writePacket(this.characteristic, cmd);
+            if (labelMode) await writePacket(this.characteristic, new Uint8Array([0x1F, 0x11, 0x51]));
+            
+            await writePacket(this.characteristic, rasterHeader);
+            await writeChunks(this.characteristic, raster.data, streamDelayMs);
+            
+            for (const cmd of endCommands) await writePacket(this.characteristic, cmd);
+            setStatus('Print complete!');
+        } catch (e) {
+            setStatus(`Print error: ${e.message}`);
+            throw e;
+        } finally {
+            this.isBusy = false;
+        }
     }
 };
 
@@ -271,7 +286,7 @@ function renderComposition() {
     
     previewCanvas.width = width;
     previewCanvas.height = height;
-    const ctx = previewCanvas.getContext('2d');
+    const ctx = previewCanvas.getContext('2d', { willReadFrequently: true });
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, width, height);
 
@@ -441,7 +456,7 @@ async function generateAiSketch() {
         const w = 384, h = 384; // Model fixed size usually
         const canvas = document.createElement('canvas');
         canvas.width = w; canvas.height = h;
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
         ctx.drawImage(compositionImage, 0, 0, w, h);
         const rgba = ctx.getImageData(0, 0, w, h).data;
         const input = new Float32Array(w * h * 3);
