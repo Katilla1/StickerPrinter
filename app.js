@@ -146,43 +146,68 @@ const printerApi = {
         try {
             const raster = renderComposition();
             const density = parseInt(densityInput?.value) || 2;
-            
+
+            // --- AUTO-CROP LOGIC ---
+            // Scan for the first and last row that contains at least one black pixel
+            let firstRow = -1;
+            let lastRow = -1;
+            for (let y = 0; y < raster.rows; y++) {
+                const rowOffset = y * raster.bytesPerRow;
+                const rowData = raster.data.slice(rowOffset, rowOffset + raster.bytesPerRow);
+                const hasContent = rowData.some(byte => byte !== 0);
+                if (hasContent) {
+                    if (firstRow === -1) firstRow = y;
+                    lastRow = y;
+                }
+            }
+
+            // Fallback if the canvas is totally empty
+            if (firstRow === -1) {
+                firstRow = 0;
+                lastRow = Math.min(raster.rows, 40); // Just print a small gap
+            }
+
+            // Add a tiny bit of padding (e.g. 8 dots)
+            const startY = Math.max(0, firstRow - 8);
+            const endY = Math.min(raster.rows, lastRow + 8);
+            const printableRows = endY - startY;
+            const printableData = raster.data.slice(startY * raster.bytesPerRow, endY * raster.bytesPerRow);
+
             setStatus('Handshaking...');
-            // EXACT sequence from your original working code + successful test
             const handshake = [
-                new Uint8Array([0x10, 0xFF, 0xF1, 0x03]), // Wake
-                new Uint8Array([0x10, 0xFF, 0x30, 0x11]), // Query Battery
-                new Uint8Array(12),                       // THE 12-BYTE FLUSH (Critical!)
-                new Uint8Array([0x10, 0xFF, 0x10, 0x00, density]), // Original Density Cmd
-                new Uint8Array([0x1B, 0x40])              // Reset
+                new Uint8Array([0x10, 0xFF, 0xF1, 0x03]), 
+                new Uint8Array([0x10, 0xFF, 0x30, 0x11]), 
+                new Uint8Array(12),                       
+                new Uint8Array([0x10, 0xFF, 0x10, 0x00, density]), 
+                new Uint8Array([0x1B, 0x40])              
             ];
             for (const cmd of handshake) {
                 await writePacket(this.characteristic, cmd);
                 await new Promise(r => setTimeout(r, 150));
             }
 
-            // Wait for Ready Signal (1c-38-0d)
             let timeout = 0;
             while (!this.isReady && timeout < 20) {
                 await new Promise(r => setTimeout(r, 100));
                 timeout++;
             }
 
-            setStatus('Streaming data...');
-            const header = new Uint8Array([0x1D, 0x76, 0x30, 0x00, 0x30, 0x00, raster.rows & 0xFF, (raster.rows >> 8) & 0xFF]);
+            setStatus('Streaming content...');
+            // Use the trimmed height (printableRows)
+            const header = new Uint8Array([0x1D, 0x76, 0x30, 0x00, 0x30, 0x00, printableRows & 0xFF, (printableRows >> 8) & 0xFF]);
             await writePacket(this.characteristic, header);
             await new Promise(r => setTimeout(r, 100));
 
-            for (let y = 0; y < raster.rows; y++) {
-                const row = raster.data.slice(y * raster.bytesPerRow, (y + 1) * raster.bytesPerRow);
+            for (let y = 0; y < printableRows; y++) {
+                const row = printableData.slice(y * raster.bytesPerRow, (y + 1) * raster.bytesPerRow);
                 await writePacket(this.characteristic, row);
-                // Back to 20ms - the verified timing from your successful test
                 await new Promise(r => setTimeout(r, 20)); 
             }
 
+            setStatus('Feeding...');
             const finalize = [
-                new Uint8Array([0x1B, 0x4A, 0x40]),       // Feed 64 dots
-                new Uint8Array([0x10, 0xFF, 0xF1, 0x45])  // Sleep
+                new Uint8Array([0x1B, 0x4A, 0x30]),       // Reduced Feed (48 dots)
+                new Uint8Array([0x10, 0xFF, 0xF1, 0x45])  
             ];
             for (const cmd of finalize) {
                 await writePacket(this.characteristic, cmd);
@@ -206,15 +231,15 @@ const printerApi = {
         try {
             setStatus("Starting test handshake...");
             const encoder = new TextEncoder();
-            const textData = encoder.encode(text + "\n\n\n");
+            const textData = encoder.encode(text + "\n"); // Removed excessive newlines
             
             const cmds = [
-                new Uint8Array([0x10, 0xFF, 0xF1, 0x03]), // Wake
-                new Uint8Array([0x10, 0xFF, 0x20, 0xF1]), // Query
-                new Uint8Array([0x1B, 0x40]),             // Reset
-                textData,                                 // Payload
-                new Uint8Array([0x1B, 0x4A, 0x40]),       // Feed
-                new Uint8Array([0x10, 0xFF, 0xF1, 0x45])  // Sleep
+                new Uint8Array([0x10, 0xFF, 0xF1, 0x03]), 
+                new Uint8Array([0x10, 0xFF, 0x20, 0xF1]), 
+                new Uint8Array([0x1B, 0x40]),             
+                textData,                                 
+                new Uint8Array([0x1B, 0x4A, 0x20]),       // Minimal Feed
+                new Uint8Array([0x10, 0xFF, 0xF1, 0x45])  
             ];
 
             for (const cmd of cmds) {
