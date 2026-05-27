@@ -20,6 +20,7 @@ const sendHexBtn = document.getElementById('sendHexBtn');
 const clearLogBtn = document.getElementById('clearLogBtn');
 const disconnectBtn = document.getElementById('disconnectBtn');
 const statusEl = document.getElementById('status');
+const batteryStatEl = document.getElementById('batteryStat');
 const paperStatEl = document.getElementById('paperStat');
 const logEl = document.getElementById('log');
 const messageInput = document.getElementById('messageInput');
@@ -69,6 +70,7 @@ const printerApi = {
     service: null,
     characteristic: null,
     isBusy: false,
+    isReady: false,
 
     async connect() {
         if (!navigator.bluetooth) throw new Error('Web Bluetooth not supported.');
@@ -89,13 +91,25 @@ const printerApi = {
             this.service = await this.server.getPrimaryService(SERVICE_UUID);
             this.characteristic = await this.service.getCharacteristic(WRITE_CHARACTERISTIC_UUID);
             
-            // Add status listener to live app
+            // Add status & battery listener
             await this.characteristic.startNotifications();
             this.characteristic.oncharacteristicvaluechanged = (e) => {
-                const hex = Array.from(new Uint8Array(e.target.value.buffer)).map(b => b.toString(16).padStart(2, '0')).join('-');
+                const bytes = new Uint8Array(e.target.value.buffer);
+                const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('-');
+                
+                // Battery Decoding: 1c-04-[LEVEL]-0d
+                if (bytes.length === 4 && bytes[0] === 0x1C && bytes[1] === 0x04) {
+                    const level = bytes[2];
+                    if (batteryStatEl) batteryStatEl.textContent = `${level}%`;
+                }
+
+                // Ready Check: 1c-38-0d
+                if (hex === "1c-38-0d") {
+                    setStatus("Printer Ready!");
+                    this.isReady = true;
+                }
+                
                 appendLog(`Printer Status: ${hex}`);
-                if (hex === "1c-38-0d") setStatus("Printer Ready!");
-                if (hex === "01-06") console.log("GATT: Ack received.");
             };
 
             setStatus(`Connected to ${this.device.name}`);
@@ -111,6 +125,7 @@ const printerApi = {
         this.service = null;
         this.characteristic = null;
         this.isBusy = false;
+        this.isReady = false;
     },
 
     async disconnect() {
@@ -127,39 +142,45 @@ const printerApi = {
         if (!this.characteristic) await this.connect();
         
         this.isBusy = true;
+        this.isReady = false;
         try {
             const raster = renderComposition();
             
-            setStatus('Handshaking...');
-            // EXACT sequence from successful Cyan button test
+            setStatus('Initializing hardware...');
             const handshake = [
                 new Uint8Array([0x10, 0xFF, 0xF1, 0x03]), // Wake
-                new Uint8Array([0x10, 0xFF, 0x20, 0xF1]), // Query Firmware
                 new Uint8Array([0x10, 0xFF, 0x30, 0x11]), // Query Battery
-                new Uint8Array([0x1B, 0x40])              // Reset
+                new Uint8Array([0x1B, 0x40]),             // Reset
+                new Uint8Array([0x1F, 0x11, 0x02, 0x03]), // MAX ENERGY
+                new Uint8Array([0x1F, 0x11, 0x51])        // Start Raster Mode
             ];
             for (const cmd of handshake) {
                 await writePacket(this.characteristic, cmd);
                 await new Promise(r => setTimeout(r, 150));
             }
 
-            setStatus('Streaming image...');
-            // 2. Raster Header (384 wide = 48 bytes)
-            const header = new Uint8Array([0x1D, 0x76, 0x30, 0x00, 0x30, 0x00, raster.rows & 0xFF, (raster.rows >> 8) & 0xFF]);
+            // Wait up to 2 seconds for a Ready signal
+            let timeout = 0;
+            while (!this.isReady && timeout < 20) {
+                await new Promise(r => setTimeout(r, 100));
+                timeout++;
+            }
+
+            setStatus('Printing...');
+            const header = new Uint8Array([0x1D, 0x76, 0x30, 0x00, 48, 0x00, raster.rows & 0xFF, (raster.rows >> 8) & 0xFF]);
             await writePacket(this.characteristic, header);
             await new Promise(r => setTimeout(r, 100));
 
-            // 3. Line-by-line Data Stream (20ms from working test)
             for (let y = 0; y < raster.rows; y++) {
                 const row = raster.data.slice(y * raster.bytesPerRow, (y + 1) * raster.bytesPerRow);
                 await writePacket(this.characteristic, row);
-                await new Promise(r => setTimeout(r, 20)); 
+                // 40ms row delay for high-energy thermal sync
+                await new Promise(r => setTimeout(r, 40)); 
             }
 
-            setStatus('Finalizing...');
-            // 4. Finalize
             const finalize = [
-                new Uint8Array([0x1B, 0x4A, 0x40]),       // Paper Feed 64 dots
+                new Uint8Array([0x1B, 0x4A, 0x80]),       // Long Feed (128 dots)
+                new Uint8Array([0x1F, 0x11, 0x50]),       // Stop Raster Mode
                 new Uint8Array([0x10, 0xFF, 0xF1, 0x45])  // Sleep
             ];
             for (const cmd of finalize) {
@@ -651,6 +672,7 @@ async function writeChunks(char, data, delay) {
 }
 
 async function writePacket(char, data) {
+    // Favor WithoutResponse for high-speed streaming as seen in logs
     if (char.properties.writeWithoutResponse) {
         await char.writeValueWithoutResponse(data);
     } else if (char.properties.write) {
