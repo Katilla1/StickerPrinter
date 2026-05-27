@@ -89,6 +89,15 @@ const printerApi = {
             this.service = await this.server.getPrimaryService(SERVICE_UUID);
             this.characteristic = await this.service.getCharacteristic(WRITE_CHARACTERISTIC_UUID);
             
+            // Add status listener to live app
+            await this.characteristic.startNotifications();
+            this.characteristic.oncharacteristicvaluechanged = (e) => {
+                const hex = Array.from(new Uint8Array(e.target.value.buffer)).map(b => b.toString(16).padStart(2, '0')).join('-');
+                appendLog(`Printer Status: ${hex}`);
+                if (hex === "1c-38-0d") setStatus("Printer Ready!");
+                if (hex === "01-06") console.log("GATT: Ack received.");
+            };
+
             setStatus(`Connected to ${this.device.name}`);
             return this;
         } catch (e) {
@@ -119,14 +128,14 @@ const printerApi = {
         
         this.isBusy = true;
         try {
-            const density = parseInt(densityInput?.value) || 1;
             const raster = renderComposition();
             
             setStatus('Handshaking...');
-            // 1. Handshake Sequence (as seen in successful test)
+            // EXACT sequence from successful Cyan button test
             const handshake = [
                 new Uint8Array([0x10, 0xFF, 0xF1, 0x03]), // Wake
-                new Uint8Array([0x10, 0xFF, 0x20, 0xF1]), // Query
+                new Uint8Array([0x10, 0xFF, 0x20, 0xF1]), // Query Firmware
+                new Uint8Array([0x10, 0xFF, 0x30, 0x11]), // Query Battery
                 new Uint8Array([0x1B, 0x40])              // Reset
             ];
             for (const cmd of handshake) {
@@ -178,6 +187,7 @@ const printerApi = {
             
             const cmds = [
                 new Uint8Array([0x10, 0xFF, 0xF1, 0x03]), // Wake
+                new Uint8Array([0x10, 0xFF, 0x20, 0xF1]), // Query
                 new Uint8Array([0x1B, 0x40]),             // Reset
                 textData,                                 // Payload
                 new Uint8Array([0x1B, 0x4A, 0x40]),       // Feed
@@ -640,14 +650,14 @@ async function writeChunks(char, data, delay) {
 }
 
 async function writePacket(char, data) {
-    if (char.properties.write) {
+    if (char.properties.writeWithoutResponse) {
+        await char.writeValueWithoutResponse(data);
+    } else if (char.properties.write) {
         if (typeof char.writeValueWithResponse === 'function') {
             await char.writeValueWithResponse(data);
         } else {
             await char.writeValue(data);
         }
-    } else if (char.properties.writeWithoutResponse) {
-        await char.writeValueWithoutResponse(data);
     } else {
         throw new Error('No write properties found on characteristic.');
     }
