@@ -131,6 +131,11 @@ const printerApi = {
                 raster.rows & 0xFF, (raster.rows >> 8) & 0xFF,
             ]);
             
+            // Combine header and data into one job to ensure packet alignment
+            const fullJob = new Uint8Array(rasterHeader.length + raster.data.length);
+            fullJob.set(rasterHeader);
+            fullJob.set(raster.data, rasterHeader.length);
+
             const beginCommands = [
                 new Uint8Array([0x10, 0xFF, 0xF1, 0x03]),
                 new Uint8Array(12),
@@ -145,8 +150,8 @@ const printerApi = {
             for (const cmd of beginCommands) await writePacket(this.characteristic, cmd);
             if (labelMode) await writePacket(this.characteristic, new Uint8Array([0x1F, 0x11, 0x51]));
             
-            await writePacket(this.characteristic, rasterHeader);
-            await writeChunks(this.characteristic, raster.data, streamDelayMs);
+            // Send the chunked job
+            await writeChunks(this.characteristic, fullJob, streamDelayMs);
             
             for (const cmd of endCommands) await writePacket(this.characteristic, cmd);
             setStatus('Print complete!');
