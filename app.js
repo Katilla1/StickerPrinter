@@ -145,42 +145,43 @@ const printerApi = {
         this.isReady = false;
         try {
             const raster = renderComposition();
+            const density = parseInt(densityInput?.value) || 2;
             
-            setStatus('Initializing hardware...');
+            setStatus('Handshaking...');
+            // EXACT sequence from your original working code + successful test
             const handshake = [
                 new Uint8Array([0x10, 0xFF, 0xF1, 0x03]), // Wake
                 new Uint8Array([0x10, 0xFF, 0x30, 0x11]), // Query Battery
-                new Uint8Array([0x1B, 0x40]),             // Reset
-                new Uint8Array([0x1F, 0x11, 0x02, 0x03]), // MAX ENERGY
-                new Uint8Array([0x1F, 0x11, 0x51])        // Start Raster Mode
+                new Uint8Array(12),                       // THE 12-BYTE FLUSH (Critical!)
+                new Uint8Array([0x10, 0xFF, 0x10, 0x00, density]), // Original Density Cmd
+                new Uint8Array([0x1B, 0x40])              // Reset
             ];
             for (const cmd of handshake) {
                 await writePacket(this.characteristic, cmd);
                 await new Promise(r => setTimeout(r, 150));
             }
 
-            // Wait up to 2 seconds for a Ready signal
+            // Wait for Ready Signal (1c-38-0d)
             let timeout = 0;
             while (!this.isReady && timeout < 20) {
                 await new Promise(r => setTimeout(r, 100));
                 timeout++;
             }
 
-            setStatus('Printing...');
-            const header = new Uint8Array([0x1D, 0x76, 0x30, 0x00, 48, 0x00, raster.rows & 0xFF, (raster.rows >> 8) & 0xFF]);
+            setStatus('Streaming data...');
+            const header = new Uint8Array([0x1D, 0x76, 0x30, 0x00, 0x30, 0x00, raster.rows & 0xFF, (raster.rows >> 8) & 0xFF]);
             await writePacket(this.characteristic, header);
             await new Promise(r => setTimeout(r, 100));
 
             for (let y = 0; y < raster.rows; y++) {
                 const row = raster.data.slice(y * raster.bytesPerRow, (y + 1) * raster.bytesPerRow);
                 await writePacket(this.characteristic, row);
-                // 40ms row delay for high-energy thermal sync
-                await new Promise(r => setTimeout(r, 40)); 
+                // Back to 20ms - the verified timing from your successful test
+                await new Promise(r => setTimeout(r, 20)); 
             }
 
             const finalize = [
-                new Uint8Array([0x1B, 0x4A, 0x80]),       // Long Feed (128 dots)
-                new Uint8Array([0x1F, 0x11, 0x50]),       // Stop Raster Mode
+                new Uint8Array([0x1B, 0x4A, 0x40]),       // Feed 64 dots
                 new Uint8Array([0x10, 0xFF, 0xF1, 0x45])  // Sleep
             ];
             for (const cmd of finalize) {
