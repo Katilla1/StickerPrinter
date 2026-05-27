@@ -207,20 +207,30 @@ function addJobToQueue(job) {
         <button class="primary" style="padding: 4px 12px; font-size: 0.8rem;">Load & Print</button>
     `;
     
-    jobEl.querySelector('button').onclick = () => {
+    jobEl.querySelector('button').onclick = async () => {
         messageInput.value = job.text || '';
         if (job.image) {
             const img = new Image();
-            img.onload = () => {
+            img.onload = async () => {
                 compositionImage = img;
+                aiSketchImage = null; // Clear any existing AI sketches
                 renderComposition();
-                printerApi.printComposition();
+                try {
+                    await printerApi.printComposition();
+                } catch (e) {
+                    setStatus("Remote job loaded, but print failed. Is printer connected?");
+                }
             };
             img.src = job.image;
         } else {
             compositionImage = null;
+            aiSketchImage = null;
             renderComposition();
-            printerApi.printComposition();
+            try {
+                await printerApi.printComposition();
+            } catch (e) {
+                setStatus("Remote job loaded, but print failed. Is printer connected?");
+            }
         }
     };
     
