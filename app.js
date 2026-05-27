@@ -93,7 +93,7 @@ const printerApi = {
             
             // Add status & battery listener
             await this.characteristic.startNotifications();
-            this.characteristic.oncharacteristicvaluechanged = (e) => {
+            this.characteristic.addEventListener('characteristicvaluechanged', (e) => {
                 const bytes = new Uint8Array(e.target.value.buffer);
                 const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('-');
                 
@@ -110,7 +110,7 @@ const printerApi = {
                 }
                 
                 appendLog(`Printer Status: ${hex}`);
-            };
+            });
 
             setStatus(`Connected to ${this.device.name}`);
             return this;
@@ -223,34 +223,27 @@ const printerApi = {
         }
     },
 
-    async printRawText(text = "Hello World") {
+    async printRawText(text = "D21 QUICK TEST") {
         if (this.isBusy) return setStatus("Busy...");
-        if (!this.characteristic) await this.connect();
-        this.isBusy = true;
+        
+        // Strategy: Swap the user text with test text, print via raster, then swap back.
+        // This is 100% reliable as it uses the confirmed working raster logic.
+        const oldVal = messageInput.value;
+        const oldImage = compositionImage;
+        const oldAi = aiSketchImage;
+        
+        messageInput.value = text + "\n" + new Date().toLocaleTimeString();
+        compositionImage = null;
+        aiSketchImage = null;
         
         try {
-            setStatus("Starting test handshake...");
-            const encoder = new TextEncoder();
-            const textData = encoder.encode(text + "\n"); // Removed excessive newlines
-            
-            const cmds = [
-                new Uint8Array([0x10, 0xFF, 0xF1, 0x03]), 
-                new Uint8Array([0x10, 0xFF, 0x20, 0xF1]), 
-                new Uint8Array([0x1B, 0x40]),             
-                textData,                                 
-                new Uint8Array([0x1B, 0x4A, 0x20]),       // Minimal Feed
-                new Uint8Array([0x10, 0xFF, 0xF1, 0x45])  
-            ];
-
-            for (const cmd of cmds) {
-                await writePacket(this.characteristic, cmd);
-                await new Promise(r => setTimeout(r, 150));
-            }
-            setStatus("Test print sent!");
-        } catch (e) {
-            setStatus(`Test failed: ${e.message}`);
+            await this.printComposition();
         } finally {
-            this.isBusy = false;
+            // Restore state
+            messageInput.value = oldVal;
+            compositionImage = oldImage;
+            aiSketchImage = oldAi;
+            renderComposition();
         }
     }
 };
