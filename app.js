@@ -1,11 +1,8 @@
 const SERVICE_UUID = 0xFF00;
 const WRITE_CHARACTERISTIC_UUID = 0xFF02;
-const FLOW_CONTROL_CHARACTERISTIC_UUID = 0xFF03;
 const PACKET_SIZE_BYTES = 64;
-const PACKET_DELAY_MS = 90;
-const HEAVY_COVERAGE_THRESHOLD = 0.32;
 
-// UI Elements
+// --- UI Elements ---
 const connectBtn = document.getElementById('connectBtn');
 const testPrintBtn = document.getElementById('testPrintBtn');
 const printBtn = document.getElementById('printBtn');
@@ -15,18 +12,13 @@ const remoteModeBtn = document.getElementById('remoteModeBtn');
 const lineArtBtn = document.getElementById('lineArtBtn');
 const photoDetailBtn = document.getElementById('photoDetailBtn');
 const aiSketchBtn = document.getElementById('aiSketchBtn');
-const infoBtn = document.getElementById('infoBtn');
-const sendHexBtn = document.getElementById('sendHexBtn');
-const clearLogBtn = document.getElementById('clearLogBtn');
 const disconnectBtn = document.getElementById('disconnectBtn');
 const statusEl = document.getElementById('status');
 const batteryStatEl = document.getElementById('batteryStat');
-const paperStatEl = document.getElementById('paperStat');
 const logEl = document.getElementById('log');
 const messageInput = document.getElementById('messageInput');
 const imageInput = document.getElementById('imageInput');
 const clearImageBtn = document.getElementById('clearImageBtn');
-const rawHexInput = document.getElementById('rawHexInput');
 const widthInput = document.getElementById('widthInput');
 const lengthInput = document.getElementById('lengthInput');
 const fontSizeInput = document.getElementById('fontSizeInput');
@@ -37,11 +29,10 @@ const ditherInput = document.getElementById('ditherInput');
 const invertInput = document.getElementById('invertInput');
 const densityInput = document.getElementById('densityInput');
 const labelModeInput = document.getElementById('labelModeInput');
-const protocolTestingInput = document.getElementById('protocolTestingInput');
 const previewCanvas = document.getElementById('preview');
 const previewLoading = document.getElementById('previewLoading');
 
-// Remote Elements
+// --- Remote / Networking ---
 const editorPanel = document.getElementById('editorPanel');
 const remotePanel = document.getElementById('remotePanel');
 const startRemoteBtn = document.getElementById('startRemoteBtn');
@@ -54,6 +45,7 @@ const remoteQueuePanel = document.getElementById('remoteQueuePanel');
 const clearQueueBtn = document.getElementById('clearQueueBtn');
 const clearQueueBtnTop = document.getElementById('clearQueueBtnTop');
 
+// --- Application State ---
 let compositionImage = null;
 let aiSketchImage = null;
 let advancedMode = false;
@@ -64,6 +56,9 @@ let connections = [];
 let isGuest = false;
 let hostPeerId = null;
 
+/**
+ * Core Printer API: Handles Bluetooth GATT communication
+ */
 const printerApi = {
     device: null,
     server: null,
@@ -91,24 +86,21 @@ const printerApi = {
             this.service = await this.server.getPrimaryService(SERVICE_UUID);
             this.characteristic = await this.service.getCharacteristic(WRITE_CHARACTERISTIC_UUID);
             
-            // Add status & battery listener
             await this.characteristic.startNotifications();
             this.characteristic.addEventListener('characteristicvaluechanged', (e) => {
                 const bytes = new Uint8Array(e.target.value.buffer);
                 const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('-');
                 
-                // Battery Decoding: 1c-04-[LEVEL]-0d
+                // Battery Decoding
                 if (bytes.length === 4 && bytes[0] === 0x1C && bytes[1] === 0x04) {
-                    const level = bytes[2];
-                    if (batteryStatEl) batteryStatEl.textContent = `${level}%`;
+                    if (batteryStatEl) batteryStatEl.textContent = `${bytes[2]}%`;
                 }
 
-                // Ready Check: 1c-38-0d
+                // Ready Check
                 if (hex === "1c-38-0d") {
                     setStatus("Printer Ready!");
                     this.isReady = true;
                 }
-                
                 appendLog(`Printer Status: ${hex}`);
             });
 
@@ -147,33 +139,24 @@ const printerApi = {
             const raster = preRenderedRaster || renderComposition();
             const density = parseInt(densityInput?.value) || 2;
 
-            // --- AUTO-CROP LOGIC ---
-            // Scan for the first and last row that contains at least one black pixel
-            let firstRow = -1;
-            let lastRow = -1;
+            // --- AUTO-CROP ---
+            let firstRow = -1, lastRow = -1;
             for (let y = 0; y < raster.rows; y++) {
                 const rowOffset = y * raster.bytesPerRow;
-                const rowData = raster.data.slice(rowOffset, rowOffset + raster.bytesPerRow);
-                const hasContent = rowData.some(byte => byte !== 0);
+                const hasContent = raster.data.slice(rowOffset, rowOffset + raster.bytesPerRow).some(b => b !== 0);
                 if (hasContent) {
                     if (firstRow === -1) firstRow = y;
                     lastRow = y;
                 }
             }
 
-            // Fallback if the canvas is totally empty
-            if (firstRow === -1) {
-                firstRow = 0;
-                lastRow = Math.min(raster.rows, 40); // Just print a small gap
-            }
-
-            // Add a tiny bit of padding (e.g. 8 dots)
+            if (firstRow === -1) { firstRow = 0; lastRow = 40; }
             const startY = Math.max(0, firstRow - 8);
             const endY = Math.min(raster.rows, lastRow + 8);
             const printableRows = endY - startY;
             const printableData = raster.data.slice(startY * raster.bytesPerRow, endY * raster.bytesPerRow);
 
-            setStatus('Handshaking...');
+            setStatus('Initializing Handshake...');
             const handshake = [
                 new Uint8Array([0x10, 0xFF, 0xF1, 0x03]), 
                 new Uint8Array([0x10, 0xFF, 0x30, 0x11]), 
@@ -192,9 +175,8 @@ const printerApi = {
                 timeout++;
             }
 
-            setStatus('Streaming content...');
-            // Use the trimmed height (printableRows)
-            const header = new Uint8Array([0x1D, 0x76, 0x30, 0x00, 0x30, 0x00, printableRows & 0xFF, (printableRows >> 8) & 0xFF]);
+            setStatus('Streaming Content...');
+            const header = new Uint8Array([0x1D, 0x76, 0x30, 0x00, 48, 0x00, printableRows & 0xFF, (printableRows >> 8) & 0xFF]);
             await writePacket(this.characteristic, header);
             await new Promise(r => setTimeout(r, 100));
 
@@ -204,9 +186,9 @@ const printerApi = {
                 await new Promise(r => setTimeout(r, 20)); 
             }
 
-            setStatus('Feeding...');
+            setStatus('Finalizing...');
             const finalize = [
-                new Uint8Array([0x1B, 0x4A, 0x30]),       // Reduced Feed (48 dots)
+                new Uint8Array([0x1B, 0x4A, 0x30]),       
                 new Uint8Array([0x10, 0xFF, 0xF1, 0x45])  
             ];
             for (const cmd of finalize) {
@@ -225,9 +207,6 @@ const printerApi = {
 
     async printRawText(text = "D21 QUICK TEST") {
         if (this.isBusy) return setStatus("Busy...");
-        
-        // Strategy: Swap the user text with test text, print via raster, then swap back.
-        // This is 100% reliable as it uses the confirmed working raster logic.
         const oldVal = messageInput.value;
         const oldImage = compositionImage;
         const oldAi = aiSketchImage;
@@ -239,7 +218,6 @@ const printerApi = {
         try {
             await this.printComposition();
         } finally {
-            // Restore state
             messageInput.value = oldVal;
             compositionImage = oldImage;
             aiSketchImage = oldAi;
@@ -248,17 +226,15 @@ const printerApi = {
     }
 };
 
-// PeerJS Remote Logic
+// --- Remote Networking (PeerJS) ---
 function initPeer(id = null) {
     if (peer) peer.destroy();
-    
     peer = new Peer(id);
     
     peer.on('open', (id) => {
         if (isGuest) {
-            setStatus('Connecting to printer host...');
-            const conn = peer.connect(hostPeerId);
-            setupConnection(conn);
+            setStatus('Connecting to host...');
+            setupConnection(peer.connect(hostPeerId));
         } else {
             remoteStatus.textContent = 'Session Live!';
             sessionInfo.classList.remove('hidden');
@@ -275,35 +251,21 @@ function initPeer(id = null) {
 
     peer.on('error', (err) => {
         setStatus(`Remote Error: ${err.type}`);
-        console.error(err);
     });
 }
 
 function setupConnection(conn) {
     conn.on('data', (data) => {
         if (data.type === 'print') {
-            handleIncomingJob(data, conn.peer);
+            const job = { ...data, sender: conn.peer, timestamp: new Date().toLocaleTimeString() };
+            addJobToQueue(job);
+            appendLog(`Received job from ${conn.peer}`);
         }
     });
     connections.push(conn);
 }
 
-function handleIncomingJob(data, sender) {
-    const job = {
-        id: Date.now(),
-        sender,
-        text: data.text,
-        image: data.image, // base64
-        settings: data.settings,
-        timestamp: new Date().toLocaleTimeString()
-    };
-    
-    addJobToQueue(job);
-    appendLog(`Received job from ${sender}`);
-}
-
 function addJobToQueue(job) {
-    remoteQueuePanel.classList.remove('hidden');
     const jobEl = document.createElement('div');
     jobEl.className = 'panel';
     jobEl.style.padding = '10px';
@@ -316,51 +278,25 @@ function addJobToQueue(job) {
         </div>
     `;
     
-    const btns = jobEl.querySelectorAll('button');
-    const previewBtn = btns[0];
-    const printBtnRemote = btns[1];
+    const [prevBtn, prntBtn] = jobEl.querySelectorAll('button');
 
-    const loadJob = async () => {
-        return new Promise((resolve) => {
-            if (job.image) {
-                const img = new Image();
-                img.onload = () => resolve(img);
-                img.src = job.image;
-            } else {
-                resolve(null);
-            }
-        });
-    };
+    const loadImg = () => new Promise(res => {
+        if (!job.image) return res(null);
+        const img = new Image();
+        img.onload = () => res(img);
+        img.src = job.image;
+    });
 
-    previewBtn.onclick = async () => {
-        const img = await loadJob();
-        const settings = {
-            ...job.settings,
-            image: img,
-            aiImage: null, // Guests send pre-sketched images if they used AI
-            width: job.settings.width || 384,
-            height: job.settings.height || 240
-        };
-        renderComposition(settings);
+    prevBtn.onclick = async () => {
+        const img = await loadImg();
+        renderComposition({ ...job.settings, image: img, aiImage: null });
         setStatus(`Previewing job from ${job.sender}`);
     };
 
-    printBtnRemote.onclick = async () => {
-        const img = await loadJob();
-        const settings = {
-            ...job.settings,
-            image: img,
-            aiImage: null
-        };
-        // Temporarily render and print
-        const raster = renderComposition(settings);
-        try {
-            await printerApi.printComposition(raster);
-            setStatus("Remote print success!");
-        } catch (e) {
-            setStatus("Remote print failed.");
-        }
-        // Return to normal preview
+    prntBtn.onclick = async () => {
+        const img = await loadImg();
+        const raster = renderComposition({ ...job.settings, image: img, aiImage: null });
+        try { await printerApi.printComposition(raster); } catch(e) {}
         renderComposition();
     };
     
@@ -368,33 +304,7 @@ function addJobToQueue(job) {
     if (remoteQueue.querySelector('p')) remoteQueue.querySelector('p').remove();
 }
 
-// Mode Management
-function setMode(mode) {
-    document.body.className = `${mode}-mode`;
-    simpleModeBtn.classList.toggle('active', mode === 'simple');
-    advancedModeBtn.classList.toggle('active', mode === 'advanced');
-    remoteModeBtn.classList.toggle('active', mode === 'remote');
-    
-    editorPanel.classList.toggle('hidden', mode === 'remote');
-    remotePanel.classList.toggle('hidden', mode !== 'remote');
-    
-    advancedMode = (mode === 'advanced');
-    renderComposition();
-}
-
-// UI Helpers
-function setStatus(msg) {
-    statusEl.textContent = msg;
-    appendLog(msg);
-}
-
-function appendLog(msg) {
-    const time = new Date().toLocaleTimeString();
-    logEl.textContent += `[${time}] ${msg}\n`;
-    logEl.scrollTop = logEl.scrollHeight;
-}
-
-// Core Rendering Logic
+// --- Core Rendering & Processing ---
 function renderComposition(customSettings = null) {
     const s = customSettings || {
         width: parseInt(widthInput.value) || 384,
@@ -421,13 +331,9 @@ function renderComposition(customSettings = null) {
         const scale = s.imageFit === 'cover' 
             ? Math.max(s.width / source.width, s.height / source.height)
             : Math.min(s.width / source.width, s.height / source.height);
-        const dw = source.width * scale;
-        const dh = source.height * scale;
+        const dw = source.width * scale, dh = source.height * scale;
         ctx.drawImage(source, (s.width - dw) / 2, (s.height - dh) / 2, dw, dh);
-        
-        if (!advancedMode && !s.aiImage) {
-            applyTreatment(ctx, s.width, s.height);
-        }
+        if (!advancedMode && !s.aiImage) applyTreatment(ctx, s.width, s.height);
     }
 
     if (s.text) {
@@ -437,14 +343,11 @@ function renderComposition(customSettings = null) {
         ctx.strokeStyle = 'white';
         ctx.lineWidth = s.fontSize/10;
         ctx.fillStyle = 'black';
-        
         const lines = s.text.split('\n');
         const yStart = s.textPosition === 'top' ? s.fontSize : s.textPosition === 'bottom' ? s.height - (lines.length * s.fontSize) : (s.height - (lines.length-1)*s.fontSize)/2;
-        
         lines.forEach((line, i) => {
             const y = yStart + i * s.fontSize * 1.2;
-            ctx.strokeText(line, s.width/2, y);
-            ctx.fillText(line, s.width/2, y);
+            ctx.strokeText(line, s.width/2, y); ctx.fillText(line, s.width/2, y);
         });
     }
     
@@ -452,19 +355,14 @@ function renderComposition(customSettings = null) {
     const data = imgData.data;
     const bytesPerRow = s.width / 8;
     const raster = new Uint8Array(bytesPerRow * s.height);
-
     const lum = new Float32Array(s.width * s.height);
-    for (let i = 0; i < lum.length; i++) {
-        lum[i] = data[i*4] * 0.299 + data[i*4+1] * 0.587 + data[i*4+2] * 0.114;
-    }
+    for (let i = 0; i < lum.length; i++) lum[i] = data[i*4] * 0.299 + data[i*4+1] * 0.587 + data[i*4+2] * 0.114;
 
     if (advancedMode && s.dither) {
         for (let y = 0; y < s.height; y++) {
             for (let x = 0; x < s.width; x++) {
                 const i = y * s.width + x;
-                const old = lum[i];
-                const v = old < s.threshold ? 0 : 255;
-                const err = old - v;
+                const old = lum[i], v = old < s.threshold ? 0 : 255, err = old - v;
                 lum[i] = v;
                 if (x+1 < s.width) lum[i+1] += err * 7/16;
                 if (y+1 < s.height && x > 0) lum[i+s.width-1] += err * 3/16;
@@ -478,8 +376,7 @@ function renderComposition(customSettings = null) {
         for (let bx = 0; bx < bytesPerRow; bx++) {
             let byte = 0;
             for (let bit = 0; bit < 8; bit++) {
-                const x = bx * 8 + bit;
-                const i = y * s.width + x;
+                const x = bx * 8 + bit, i = y * s.width + x;
                 const isBlack = (advancedMode && s.dither) ? lum[i] < s.threshold : lum[i] < s.threshold;
                 const finalBlack = s.invert ? !isBlack : isBlack;
                 if (finalBlack) byte |= (1 << (7 - bit));
@@ -505,26 +402,17 @@ function applyTreatment(ctx, w, h) {
             imgData.data[i*4] = imgData.data[i*4+1] = imgData.data[i*4+2] = val;
         }
     } else if (simpleImageStyle === 'photo') {
-        // Atkinson dither for simple photo mode
         const lum = extractLum(imgData.data);
         for (let y = 0; y < h; y++) {
             for (let x = 0; x < w; x++) {
-                const i = y * w + x;
-                const old = lum[i];
-                const v = old < 128 ? 0 : 255;
-                const err = (old - v) / 8;
+                const i = y * w + x, old = lum[i], v = old < 128 ? 0 : 255, err = (old - v) / 8;
                 lum[i] = v;
-                if (x+1 < w) lum[i+1] += err;
-                if (x+2 < w) lum[i+2] += err;
-                if (y+1 < h && x > 0) lum[i+w-1] += err;
-                if (y+1 < h) lum[i+w] += err;
-                if (y+1 < h && x+1 < w) lum[i+w+1] += err;
-                if (y+2 < h) lum[i+w*2] += err;
+                if (x+1 < w) lum[i+1] += err; if (x+2 < w) lum[i+2] += err;
+                if (y+1 < h && x > 0) lum[i+w-1] += err; if (y+1 < h) lum[i+w] += err;
+                if (y+1 < h && x+1 < w) lum[i+w+1] += err; if (y+2 < h) lum[i+w*2] += err;
             }
         }
-        for (let i = 0; i < lum.length; i++) {
-            imgData.data[i*4] = imgData.data[i*4+1] = imgData.data[i*4+2] = lum[i];
-        }
+        for (let i = 0; i < lum.length; i++) imgData.data[i*4] = imgData.data[i*4+1] = imgData.data[i*4+2] = lum[i];
     }
     ctx.putImageData(imgData, 0, 0);
 }
@@ -542,10 +430,7 @@ function boxBlur(data, w, h, r) {
             let sum = 0, count = 0;
             for (let sy = y-r; sy <= y+r; sy++) {
                 for (let sx = x-r; sx <= x+r; sx++) {
-                    if (sx >= 0 && sx < w && sy >= 0 && sy < h) {
-                        sum += data[sy*w + sx];
-                        count++;
-                    }
+                    if (sx >= 0 && sx < w && sy >= 0 && sy < h) { sum += data[sy*w + sx]; count++; }
                 }
             }
             out[y*w + x] = sum / count;
@@ -554,125 +439,71 @@ function boxBlur(data, w, h, r) {
     return out;
 }
 
-function drawText(ctx, text, w, h) {
-    if (!text) return;
-    const size = parseInt(fontSizeInput.value);
-    ctx.font = `bold ${size}px sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.strokeStyle = 'white';
-    ctx.lineWidth = size/10;
-    ctx.fillStyle = 'black';
-    
-    const lines = text.split('\n');
-    const pos = textPositionInput.value;
-    const yStart = pos === 'top' ? size : pos === 'bottom' ? h - (lines.length * size) : (h - (lines.length-1)*size)/2;
-    
-    lines.forEach((line, i) => {
-        const y = yStart + i * size * 1.2;
-        ctx.strokeText(line, w/2, y);
-        ctx.fillText(line, w/2, y);
-    });
-}
-
-// AI Sketch Logic
+// --- AI Logic ---
 async function generateAiSketch() {
     if (!compositionImage) return setStatus('Upload image first.');
     previewLoading.classList.remove('hidden');
     setStatus('Running AI Sketch...');
-    
     try {
         if (!onnxSessionPromise) {
             if (!window.ort) await loadScript('https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.min.js');
             onnxSessionPromise = window.ort.InferenceSession.create('https://huggingface.co/rocca/informative-drawings-line-art-onnx/resolve/main/model.onnx', { executionProviders: ['wasm'] });
         }
         const session = await onnxSessionPromise;
-        const w = 384, h = 384; // Model fixed size usually
-        const canvas = document.createElement('canvas');
-        canvas.width = w; canvas.height = h;
+        const w = 384, h = 384;
+        const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
         ctx.drawImage(compositionImage, 0, 0, w, h);
-        const rgba = ctx.getImageData(0, 0, w, h).data;
-        const input = new Float32Array(w * h * 3);
+        const rgba = ctx.getImageData(0, 0, w, h).data, input = new Float32Array(w * h * 3);
         for (let i = 0; i < w * h; i++) {
-            input[i] = rgba[i*4]/255;
-            input[w*h + i] = rgba[i*4+1]/255;
-            input[2*w*h + i] = rgba[i*4+2]/255;
+            input[i] = rgba[i*4]/255; input[w*h + i] = rgba[i*4+1]/255; input[2*w*h + i] = rgba[i*4+2]/255;
         }
-        
         const results = await session.run({ input: new window.ort.Tensor('float32', input, [1, 3, h, w]) });
-        const output = results.output.data;
-        const outData = new Uint8ClampedArray(w * h * 4);
+        const output = results.output.data, outData = new Uint8ClampedArray(w * h * 4);
         for (let i = 0; i < w * h; i++) {
-            const v = output[i] * 255;
-            outData[i*4] = outData[i*4+1] = outData[i*4+2] = v;
-            outData[i*4+3] = 255;
+            const v = output[i] * 255; outData[i*4] = outData[i*4+1] = outData[i*4+2] = v; outData[i*4+3] = 255;
         }
-        const outCanvas = document.createElement('canvas');
-        outCanvas.width = w; outCanvas.height = h;
+        const outCanvas = document.createElement('canvas'); outCanvas.width = w; outCanvas.height = h;
         outCanvas.getContext('2d').putImageData(new ImageData(outData, w, h), 0, 0);
-        aiSketchImage = outCanvas;
-        renderComposition();
-        setStatus('AI Sketch complete!');
-    } catch (e) {
-        setStatus(`AI Error: ${e.message}`);
-    } finally {
-        previewLoading.classList.add('hidden');
-    }
+        aiSketchImage = outCanvas; renderComposition(); setStatus('AI Sketch complete!');
+    } catch (e) { setStatus(`AI Error: ${e.message}`); } finally { previewLoading.classList.add('hidden'); }
 }
 
-clearQueueBtn.onclick = clearQueueBtnTop.onclick = () => {
-    remoteQueue.innerHTML = '<p style="font-size: 0.8rem; margin: 0;">No incoming jobs yet.</p>';
-    appendLog('Remote queue cleared.');
-};
+// --- Interaction Handlers ---
+function setMode(mode) {
+    document.body.className = `${mode}-mode`;
+    [simpleModeBtn, advancedModeBtn, remoteModeBtn].forEach(b => b.classList.toggle('active', b.id.startsWith(mode)));
+    editorPanel.classList.toggle('hidden', mode === 'remote');
+    remotePanel.classList.toggle('hidden', mode !== 'remote');
+    advancedMode = (mode === 'advanced'); renderComposition();
+}
 
-// Event Listeners
+function setStatus(msg) { statusEl.textContent = msg; appendLog(msg); }
+function appendLog(msg) { logEl.textContent += `[${new Date().toLocaleTimeString()}] ${msg}\n`; logEl.scrollTop = logEl.scrollHeight; }
+
 connectBtn.onclick = () => printerApi.connect();
-testPrintBtn.onclick = () => printerApi.printRawText("D21 Status: OK\n" + new Date().toLocaleString());
-disconnectBtn.onclick = () => {
-    printerApi.disconnect();
-    printerApi.isBusy = false; // Force reset busy state on disconnect
-    setStatus('Printer disconnected and state reset.');
-};
+testPrintBtn.onclick = () => printerApi.printRawText();
+disconnectBtn.onclick = () => { printerApi.disconnect(); setStatus('State reset.'); };
 printBtn.onclick = () => {
     if (isGuest) {
-        const sendJob = (imgData) => {
-            const currentSettings = {
-                text: messageInput.value,
-                threshold: parseInt(thresholdInput.value),
-                invert: invertInput?.checked || false,
-                dither: ditherInput?.checked || false,
-                imageFit: imageFitInput?.value || 'contain',
-                fontSize: parseInt(fontSizeInput.value) || 42,
-                textPosition: textPositionInput.value || 'center',
-                width: parseInt(widthInput.value) || 384,
-                height: parseInt(lengthInput.value) || 240
-            };
-
-            connections.forEach(c => c.send({
-                type: 'print',
-                text: messageInput.value,
-                image: imgData,
-                settings: currentSettings
-            }));
-            setStatus('Sent to host!');
+        const settings = {
+            text: messageInput.value, threshold: parseInt(thresholdInput.value), invert: invertInput?.checked,
+            dither: ditherInput?.checked, imageFit: imageFitInput?.value, fontSize: parseInt(fontSizeInput.value),
+            textPosition: textPositionInput.value, width: parseInt(widthInput.value), height: parseInt(lengthInput.value)
         };
-        
-        // Use the current visible canvas for guests (includes AI sketch and treatment)
-        const guestCanvas = aiSketchImage || compositionImage ? previewCanvas.toDataURL('image/png') : null;
-        sendJob(guestCanvas);
-    } else {
-        printerApi.printComposition();
-    }
+        const img = aiSketchImage || compositionImage ? previewCanvas.toDataURL('image/png') : null;
+        connections.forEach(c => c.send({ type: 'print', text: messageInput.value, image: img, settings }));
+        setStatus('Sent to host!');
+    } else printerApi.printComposition();
 };
 
 simpleModeBtn.onclick = () => setMode('simple');
 advancedModeBtn.onclick = () => setMode('advanced');
 remoteModeBtn.onclick = () => setMode('remote');
-
 lineArtBtn.onclick = () => { simpleImageStyle = 'line-art'; aiSketchImage = null; renderComposition(); };
 photoDetailBtn.onclick = () => { simpleImageStyle = 'photo'; aiSketchImage = null; renderComposition(); };
 aiSketchBtn.onclick = () => generateAiSketch();
+clearQueueBtn.onclick = clearQueueBtnTop.onclick = () => { remoteQueue.innerHTML = '<p style="font-size: 0.8rem;">No incoming jobs.</p>'; };
 
 imageInput.onchange = (e) => {
     const file = e.target.files[0];
@@ -688,10 +519,9 @@ clearImageBtn.onclick = () => { compositionImage = null; aiSketchImage = null; i
 document.addEventListener('paste', (e) => {
     const item = Array.from(e.clipboardData.items).find(x => x.type.startsWith('image'));
     if (item) {
-        const blob = item.getAsFile();
         const img = new Image();
         img.onload = () => { compositionImage = img; aiSketchImage = null; renderComposition(); setStatus('Pasted image loaded.'); };
-        img.src = URL.createObjectURL(blob);
+        img.src = URL.createObjectURL(item.getAsFile());
     }
 });
 
@@ -703,56 +533,22 @@ startRemoteBtn.onclick = () => initPeer();
 stopRemoteBtn.onclick = () => { peer.destroy(); sessionInfo.classList.add('hidden'); remoteStatus.textContent = 'Session stopped.'; };
 shareLink.onclick = () => { navigator.clipboard.writeText(shareLink.textContent); setStatus('Link copied!'); };
 
-// Initialization
+// --- Init ---
 const params = new URLSearchParams(window.location.search);
 if (params.has('peer')) {
-    isGuest = true;
-    hostPeerId = params.get('peer');
+    isGuest = true; hostPeerId = params.get('peer');
     document.body.classList.add('guest-mode');
-    setStatus('Connecting to host...');
     initPeer();
-    // Simplified UI for guest
-    advancedModeBtn.style.display = 'none';
-    remoteModeBtn.style.display = 'none';
-    connectBtn.style.display = 'none';
-    disconnectBtn.style.display = 'none';
     printBtn.textContent = 'Send to Printer';
 }
 
 function loadScript(url) {
-    return new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = url; s.onload = resolve; s.onerror = reject;
-        document.head.appendChild(s);
+    return new Promise((res, rej) => {
+        const s = document.createElement('script'); s.src = url; s.onload = res; s.onerror = rej; document.head.appendChild(s);
     });
 }
 
-function calculateBlackCoverage(data, total) {
-    let black = 0;
-    for (let b of data) {
-        while (b) { black += (b & 1); b >>= 1; }
-    }
-    return black / (total);
-}
-
-async function writeChunks(char, data, delay) {
-    for (let i = 0; i < data.length; i += PACKET_SIZE_BYTES) {
-        await writePacket(char, data.slice(i, i + PACKET_SIZE_BYTES));
-        await new Promise(r => setTimeout(r, delay));
-    }
-}
-
 async function writePacket(char, data) {
-    // Favor WithoutResponse for high-speed streaming as seen in logs
-    if (char.properties.writeWithoutResponse) {
-        await char.writeValueWithoutResponse(data);
-    } else if (char.properties.write) {
-        if (typeof char.writeValueWithResponse === 'function') {
-            await char.writeValueWithResponse(data);
-        } else {
-            await char.writeValue(data);
-        }
-    } else {
-        throw new Error('No write properties found on characteristic.');
-    }
+    if (char.properties.writeWithoutResponse) await char.writeValueWithoutResponse(data);
+    else await char.writeValueWithResponse(data);
 }
