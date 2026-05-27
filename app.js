@@ -7,6 +7,7 @@ const HEAVY_COVERAGE_THRESHOLD = 0.32;
 
 // UI Elements
 const connectBtn = document.getElementById('connectBtn');
+const testPrintBtn = document.getElementById('testPrintBtn');
 const printBtn = document.getElementById('printBtn');
 const simpleModeBtn = document.getElementById('simpleModeBtn');
 const advancedModeBtn = document.getElementById('advancedModeBtn');
@@ -168,6 +169,37 @@ const printerApi = {
         } catch (e) {
             setStatus(`Print error: ${e.message}`);
             throw e;
+        } finally {
+            this.isBusy = false;
+        }
+    },
+
+    async printRawText(text = "Hello World") {
+        if (this.isBusy) return setStatus("Busy...");
+        if (!this.characteristic) await this.connect();
+        this.isBusy = true;
+        
+        try {
+            setStatus("Sending test text...");
+            // D21 Simple Text Command Sequence
+            const encoder = new TextEncoder();
+            const textData = encoder.encode(text + "\n\n\n");
+            
+            const cmds = [
+                new Uint8Array([0x10, 0xFF, 0xF1, 0x03]), // Wake
+                new Uint8Array([0x1B, 0x40]),             // Reset/Initialize
+                textData,                                 // The payload
+                new Uint8Array([0x1D, 0x0C]),             // Feed/Cut
+                new Uint8Array([0x10, 0xFF, 0xF1, 0x45])  // Sleep
+            ];
+
+            for (const cmd of cmds) {
+                await writePacket(this.characteristic, cmd);
+                await new Promise(r => setTimeout(r, 100));
+            }
+            setStatus("Test print sent!");
+        } catch (e) {
+            setStatus(`Test failed: ${e.message}`);
         } finally {
             this.isBusy = false;
         }
@@ -510,6 +542,7 @@ clearQueueBtn.onclick = clearQueueBtnTop.onclick = () => {
 
 // Event Listeners
 connectBtn.onclick = () => printerApi.connect();
+testPrintBtn.onclick = () => printerApi.printRawText("D21 Status: OK\n" + new Date().toLocaleString());
 disconnectBtn.onclick = () => {
     printerApi.disconnect();
     printerApi.isBusy = false; // Force reset busy state on disconnect
