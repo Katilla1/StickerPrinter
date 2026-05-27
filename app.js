@@ -133,7 +133,7 @@ const printerApi = {
         this.reset();
     },
 
-    async printComposition() {
+    async printComposition(preRenderedRaster = null) {
         if (this.isBusy) {
             setStatus("Printer busy, please wait...");
             return;
@@ -144,7 +144,7 @@ const printerApi = {
         this.isBusy = true;
         this.isReady = false;
         try {
-            const raster = renderComposition();
+            const raster = preRenderedRaster || renderComposition();
             const density = parseInt(densityInput?.value) || 2;
 
             // --- AUTO-CROP LOGIC ---
@@ -294,6 +294,7 @@ function handleIncomingJob(data, sender) {
         sender,
         text: data.text,
         image: data.image, // base64
+        settings: data.settings,
         timestamp: new Date().toLocaleTimeString()
     };
     
@@ -309,34 +310,58 @@ function addJobToQueue(job) {
     jobEl.innerHTML = `
         <div style="font-size: 0.8rem; font-weight: bold;">From: ${job.sender} <span style="font-weight: normal; opacity: 0.6;">${job.timestamp}</span></div>
         <div style="font-size: 0.9rem; margin: 4px 0;">${job.text || '(No text)'}</div>
-        <button class="primary" style="padding: 4px 12px; font-size: 0.8rem;">Load & Print</button>
+        <div class="row" style="gap: 8px;">
+            <button class="secondary" style="padding: 4px 12px; font-size: 0.8rem; flex: 1;">Preview</button>
+            <button class="primary" style="padding: 4px 12px; font-size: 0.8rem; flex: 1;">Print</button>
+        </div>
     `;
     
-    jobEl.querySelector('button').onclick = async () => {
-        messageInput.value = job.text || '';
-        if (job.image) {
-            const img = new Image();
-            img.onload = async () => {
-                compositionImage = img;
-                aiSketchImage = null; // Clear any existing AI sketches
-                renderComposition();
-                try {
-                    await printerApi.printComposition();
-                } catch (e) {
-                    setStatus("Remote job loaded, but print failed. Is printer connected?");
-                }
-            };
-            img.src = job.image;
-        } else {
-            compositionImage = null;
-            aiSketchImage = null;
-            renderComposition();
-            try {
-                await printerApi.printComposition();
-            } catch (e) {
-                setStatus("Remote job loaded, but print failed. Is printer connected?");
+    const btns = jobEl.querySelectorAll('button');
+    const previewBtn = btns[0];
+    const printBtnRemote = btns[1];
+
+    const loadJob = async () => {
+        return new Promise((resolve) => {
+            if (job.image) {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.src = job.image;
+            } else {
+                resolve(null);
             }
+        });
+    };
+
+    previewBtn.onclick = async () => {
+        const img = await loadJob();
+        const settings = {
+            ...job.settings,
+            image: img,
+            aiImage: null, // Guests send pre-sketched images if they used AI
+            width: job.settings.width || 384,
+            height: job.settings.height || 240
+        };
+        renderComposition(settings);
+        setStatus(`Previewing job from ${job.sender}`);
+    };
+
+    printBtnRemote.onclick = async () => {
+        const img = await loadJob();
+        const settings = {
+            ...job.settings,
+            image: img,
+            aiImage: null
+        };
+        // Temporarily render and print
+        const raster = renderComposition(settings);
+        try {
+            await printerApi.printComposition(raster);
+            setStatus("Remote print success!");
+        } catch (e) {
+            setStatus("Remote print failed.");
         }
+        // Return to normal preview
+        renderComposition();
     };
     
     remoteQueue.prepend(jobEl);
@@ -370,75 +395,94 @@ function appendLog(msg) {
 }
 
 // Core Rendering Logic
-function renderComposition() {
-    const width = parseInt(widthInput.value) || 384;
-    const height = parseInt(lengthInput.value) || 240;
-    
-    previewCanvas.width = width;
-    previewCanvas.height = height;
+function renderComposition(customSettings = null) {
+    const s = customSettings || {
+        width: parseInt(widthInput.value) || 384,
+        height: parseInt(lengthInput.value) || 240,
+        text: messageInput.value,
+        threshold: parseInt(thresholdInput.value),
+        invert: invertInput?.checked || false,
+        dither: ditherInput?.checked || false,
+        imageFit: imageFitInput?.value || 'contain',
+        image: compositionImage,
+        aiImage: aiSketchImage,
+        fontSize: parseInt(fontSizeInput.value) || 42,
+        textPosition: textPositionInput.value || 'center'
+    };
+
+    previewCanvas.width = s.width;
+    previewCanvas.height = s.height;
     const ctx = previewCanvas.getContext('2d', { willReadFrequently: true });
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(0, 0, s.width, s.height);
 
-    const source = aiSketchImage || compositionImage;
+    const source = s.aiImage || s.image;
     if (source) {
-        const fit = imageFitInput?.value || 'contain';
-        const scale = fit === 'cover' 
-            ? Math.max(width / source.width, height / source.height)
-            : Math.min(width / source.width, height / source.height);
+        const scale = s.imageFit === 'cover' 
+            ? Math.max(s.width / source.width, s.height / source.height)
+            : Math.min(s.width / source.width, s.height / source.height);
         const dw = source.width * scale;
         const dh = source.height * scale;
-        ctx.drawImage(source, (width - dw) / 2, (height - dh) / 2, dw, dh);
+        ctx.drawImage(source, (s.width - dw) / 2, (s.height - dh) / 2, dw, dh);
         
-        if (!advancedMode && !aiSketchImage) {
-            applyTreatment(ctx, width, height);
+        if (!advancedMode && !s.aiImage) {
+            applyTreatment(ctx, s.width, s.height);
         }
     }
 
-    drawText(ctx, messageInput.value, width, height);
+    if (s.text) {
+        ctx.font = `bold ${s.fontSize}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = s.fontSize/10;
+        ctx.fillStyle = 'black';
+        
+        const lines = s.text.split('\n');
+        const yStart = s.textPosition === 'top' ? s.fontSize : s.textPosition === 'bottom' ? s.height - (lines.length * s.fontSize) : (s.height - (lines.length-1)*s.fontSize)/2;
+        
+        lines.forEach((line, i) => {
+            const y = yStart + i * s.fontSize * 1.2;
+            ctx.strokeText(line, s.width/2, y);
+            ctx.fillText(line, s.width/2, y);
+        });
+    }
     
-    const imgData = ctx.getImageData(0, 0, width, height);
+    const imgData = ctx.getImageData(0, 0, s.width, s.height);
     const data = imgData.data;
-    const threshold = parseInt(thresholdInput.value);
-    const invert = invertInput?.checked || false;
-    const dither = ditherInput?.checked || false;
-    const bytesPerRow = width / 8;
-    const raster = new Uint8Array(bytesPerRow * height);
+    const bytesPerRow = s.width / 8;
+    const raster = new Uint8Array(bytesPerRow * s.height);
 
-    // Prepare luminance data for dithering if needed
-    const lum = new Float32Array(width * height);
+    const lum = new Float32Array(s.width * s.height);
     for (let i = 0; i < lum.length; i++) {
         lum[i] = data[i*4] * 0.299 + data[i*4+1] * 0.587 + data[i*4+2] * 0.114;
     }
 
-    if (advancedMode && dither) {
-        // Floyd-Steinberg
-        for (let y = 0; y < height; y++) {
-            for (let x = 0; x < width; x++) {
-                const i = y * width + x;
+    if (advancedMode && s.dither) {
+        for (let y = 0; y < s.height; y++) {
+            for (let x = 0; x < s.width; x++) {
+                const i = y * s.width + x;
                 const old = lum[i];
-                const v = old < threshold ? 0 : 255;
+                const v = old < s.threshold ? 0 : 255;
                 const err = old - v;
                 lum[i] = v;
-                if (x+1 < width) lum[i+1] += err * 7/16;
-                if (y+1 < height && x > 0) lum[i+width-1] += err * 3/16;
-                if (y+1 < height) lum[i+width] += err * 5/16;
-                if (y+1 < height && x+1 < width) lum[i+width+1] += err * 1/16;
+                if (x+1 < s.width) lum[i+1] += err * 7/16;
+                if (y+1 < s.height && x > 0) lum[i+s.width-1] += err * 3/16;
+                if (y+1 < s.height) lum[i+s.width] += err * 5/16;
+                if (y+1 < s.height && x+1 < s.width) lum[i+s.width+1] += err * 1/16;
             }
         }
     }
 
-    for (let y = 0; y < height; y++) {
+    for (let y = 0; y < s.height; y++) {
         for (let bx = 0; bx < bytesPerRow; bx++) {
             let byte = 0;
             for (let bit = 0; bit < 8; bit++) {
                 const x = bx * 8 + bit;
-                const i = y * width + x;
-                const isBlack = (advancedMode && dither) ? lum[i] < threshold : (data[i*4] * 0.299 + data[i*4+1] * 0.587 + data[i*4+2] * 0.114) < threshold;
-                const finalBlack = invert ? !isBlack : isBlack;
-                
+                const i = y * s.width + x;
+                const isBlack = (advancedMode && s.dither) ? lum[i] < s.threshold : lum[i] < s.threshold;
+                const finalBlack = s.invert ? !isBlack : isBlack;
                 if (finalBlack) byte |= (1 << (7 - bit));
-                
                 const col = finalBlack ? 0 : 255;
                 data[i*4] = data[i*4+1] = data[i*4+2] = col;
             }
@@ -446,7 +490,7 @@ function renderComposition() {
         }
     }
     ctx.putImageData(imgData, 0, 0);
-    return { data: raster, width, rows: height, bytesPerRow };
+    return { data: raster, width: s.width, rows: s.height, bytesPerRow };
 }
 
 function applyTreatment(ctx, w, h) {
@@ -592,23 +636,31 @@ disconnectBtn.onclick = () => {
 };
 printBtn.onclick = () => {
     if (isGuest) {
-        const reader = new FileReader();
-        const [file] = imageInput.files;
         const sendJob = (imgData) => {
+            const currentSettings = {
+                text: messageInput.value,
+                threshold: parseInt(thresholdInput.value),
+                invert: invertInput?.checked || false,
+                dither: ditherInput?.checked || false,
+                imageFit: imageFitInput?.value || 'contain',
+                fontSize: parseInt(fontSizeInput.value) || 42,
+                textPosition: textPositionInput.value || 'center',
+                width: parseInt(widthInput.value) || 384,
+                height: parseInt(lengthInput.value) || 240
+            };
+
             connections.forEach(c => c.send({
                 type: 'print',
                 text: messageInput.value,
-                image: imgData
+                image: imgData,
+                settings: currentSettings
             }));
-            setStatus('Sent to printer!');
+            setStatus('Sent to host!');
         };
-        if (file) {
-            const r = new FileReader();
-            r.onload = (e) => sendJob(e.target.result);
-            r.readAsDataURL(file);
-        } else {
-            sendJob(null);
-        }
+        
+        // Use the current visible canvas for guests (includes AI sketch and treatment)
+        const guestCanvas = aiSketchImage || compositionImage ? previewCanvas.toDataURL('image/png') : null;
+        sendJob(guestCanvas);
     } else {
         printerApi.printComposition();
     }
