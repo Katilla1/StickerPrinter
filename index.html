@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>D21 Printer Interface</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f6f2ea;
+            --panel: #ffffff;
+            --text: #1f2937;
+            --muted: #6b7280;
+            --accent: #0f766e;
+            --accent-strong: #115e59;
+            --border: #d6d3d1;
+            --success: #059669;
+            --warning: #d97706;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at top left, rgba(15, 118, 110, 0.12), transparent 35%),
+                linear-gradient(180deg, #fffdf9 0%, var(--bg) 100%);
+            display: flex;
+            justify-content: center;
+            padding: 24px;
+        }
+
+        main {
+            width: min(1000px, 100%);
+            background: rgba(255, 255, 255, 0.88);
+            border: 1px solid rgba(214, 211, 209, 0.9);
+            border-radius: 24px;
+            padding: 28px;
+            box-shadow: 0 24px 80px rgba(15, 23, 42, 0.08);
+            backdrop-filter: blur(10px);
+            display: grid;
+            grid-template-columns: 1fr 384px;
+            gap: 28px;
+        }
+
+        @media (max-width: 900px) {
+            main {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .editor-section {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .preview-section {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            position: sticky;
+            top: 24px;
+            height: fit-content;
+        }
+
+        h1 {
+            margin: 0 0 4px;
+            font-size: 2.2rem;
+            letter-spacing: -0.04em;
+        }
+
+        p {
+            margin: 0 0 16px;
+            color: var(--muted);
+            line-height: 1.5;
+        }
+
+        .panel {
+            display: grid;
+            gap: 16px;
+            padding: 20px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+        }
+
+        .row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: end;
+        }
+
+        .mode-switch {
+            display: flex;
+            gap: 6px;
+            padding: 4px;
+            background: #f5f5f4;
+            border-radius: 999px;
+            width: fit-content;
+        }
+
+        .mode-switch button {
+            padding: 9px 16px;
+            background: transparent;
+            color: var(--muted);
+            border: 0;
+            border-radius: 999px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .mode-switch button.active {
+            background: var(--panel);
+            color: var(--text);
+            box-shadow: 0 1px 4px rgba(15, 23, 42, 0.14);
+        }
+
+        input,
+        textarea,
+        select {
+            width: 100%;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 12px 16px;
+            font-size: 1rem;
+            background: #fff;
+            color: var(--text);
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        input:focus, textarea:focus, select:focus {
+            border-color: var(--accent);
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+            font-family: inherit;
+        }
+
+        label {
+            display: grid;
+            gap: 6px;
+            color: var(--muted);
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .dimensions {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .checkbox {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.95rem;
+            cursor: pointer;
+        }
+
+        .checkbox input {
+            width: auto;
+        }
+
+        button {
+            border: 0;
+            border-radius: 999px;
+            padding: 12px 20px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 150ms ease;
+        }
+
+        button:hover { transform: translateY(-1px); opacity: 0.9; }
+        button:active { transform: translateY(0); }
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.45;
+            transform: none;
+        }
+
+        .primary { background: var(--accent); color: white; }
+        .secondary { background: #e7e5e4; color: #111827; }
+        .success { background: var(--success); color: white; }
+        .warning { background: var(--warning); color: white; }
+
+        .status {
+            padding: 12px 14px;
+            border-radius: 14px;
+            background: #f5f5f4;
+            color: var(--muted);
+            border: 1px solid var(--border);
+            font-size: 0.9rem;
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+        }
+
+        .remote-panel {
+            background: #f0f9ff;
+            border-color: #bae6fd;
+        }
+
+        .remote-info {
+            font-size: 0.85rem;
+            color: #0369a1;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .badge-live { background: #fee2e2; color: #b91c1c; }
+
+        #preview {
+            width: 100%;
+            border: 1px solid var(--border);
+            background: white;
+            image-rendering: pixelated;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+
+        #log {
+            margin: 0;
+            height: 180px;
+            overflow: auto;
+            padding: 12px;
+            border-radius: 14px;
+            border: 1px solid var(--border);
+            background: #111827;
+            color: #d1fae5;
+            font: 0.75rem/1.45 ui-monospace, monospace;
+            white-space: pre-wrap;
+        }
+
+        .hidden { display: none !important; }
+
+        .loading-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(255,255,255,0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 12px;
+            font-weight: 600;
+            color: var(--accent);
+        }
+
+        .remote-link {
+            font-family: monospace;
+            background: #fff;
+            padding: 8px;
+            border: 1px dashed #7dd3fc;
+            border-radius: 8px;
+            word-break: break-all;
+            cursor: pointer;
+        }
+
+        /* Guest Mode Adjustments */
+        body.guest-mode .advanced-only,
+        body.guest-mode #remoteModeBtn,
+        body.guest-mode #advancedModeBtn,
+        body.guest-mode #connectBtn,
+        body.guest-mode #disconnectBtn,
+        body.guest-mode .stats {
+            display: none !important;
+        }
+
+        body.guest-mode main {
+            grid-template-columns: 1fr;
+            max-width: 600px;
+        }
+    </style>
+</head>
+<body class="simple-mode">
+    <main>
+        <div class="editor-section">
+            <div>
+                <h1>Sticker Printer</h1>
+                <p>Connect your D21 and start printing. Remote friends can also send jobs.</p>
+            </div>
+
+            <section class="panel">
+                <div class="mode-switch">
+                    <button id="simpleModeBtn" class="active">Simple</button>
+                    <button id="advancedModeBtn">Advanced</button>
+                    <button id="remoteModeBtn">Remote</button>
+                </div>
+
+                <!-- Simple/Advanced Editor -->
+                <div id="editorPanel">
+                    <label>
+                        Text overlay
+                        <textarea id="messageInput" placeholder="Enter text for the sticker..."></textarea>
+                    </label>
+                    
+                    <div class="row">
+                        <label style="flex: 1">
+                            Image / Artwork
+                            <input id="imageInput" type="file" accept="image/*">
+                        </label>
+                        <button id="clearImageBtn" class="secondary">Clear</button>
+                    </div>
+
+                    <div class="simple-only">
+                        <label>Image Style</label>
+                        <div class="mode-switch">
+                            <button id="lineArtBtn" class="active">Line Art</button>
+                            <button id="photoDetailBtn">Photo</button>
+                            <button id="aiSketchBtn">AI Sketch ✨</button>
+                        </div>
+                    </div>
+
+                    <div class="dimensions advanced-only">
+                        <label>Width <input id="widthInput" type="number" value="384"></label>
+                        <label>Height <input id="lengthInput" type="number" value="240"></label>
+                        <label>Font Size <input id="fontSizeInput" type="number" value="42"></label>
+                        <label>Placement
+                            <select id="textPositionInput">
+                                <option value="top">Top</option>
+                                <option value="center" selected>Center</option>
+                                <option value="bottom">Bottom</option>
+                            </select>
+                        </label>
+                        <label>Black Threshold <input id="thresholdInput" type="range" min="20" max="235" value="128"></label>
+                        <label>Image Fit
+                            <select id="imageFitInput">
+                                <option value="contain" selected>Contain</option>
+                                <option value="cover">Crop to fill</option>
+                            </select>
+                        </label>
+                        <label>Density
+                            <select id="densityInput">
+                                <option value="0">Light</option>
+                                <option value="1" selected>Normal</option>
+                                <option value="2">Dark</option>
+                            </select>
+                        </label>
+                        <label class="checkbox"><input id="ditherInput" type="checkbox" checked> Dither</label>
+                        <label class="checkbox"><input id="invertInput" type="checkbox"> Invert Black/White</label>
+                        <label class="checkbox"><input id="labelModeInput" type="checkbox" checked> Sticker Mode</label>
+                    </div>
+                </div>
+
+                <!-- Remote Management Panel -->
+                <div id="remotePanel" class="panel remote-panel hidden">
+                    <div class="remote-info">
+                        <strong>Remote Printing Session</strong>
+                        <p>Share this link with friends so they can send stickers to your printer.</p>
+                    </div>
+                    <div id="remoteStatus" class="status">Session not started.</div>
+                    <div id="sessionInfo" class="hidden">
+                        <div class="remote-link" id="shareLink" title="Click to copy">Loading link...</div>
+                        <div class="row" style="margin-top: 10px;">
+                            <button id="stopRemoteBtn" class="secondary">Stop Session</button>
+                        </div>
+                    </div>
+                    <button id="startRemoteBtn" class="primary">Start Remote Session</button>
+                </div>
+
+                <div class="row">
+                    <button id="connectBtn" class="primary">Connect Printer</button>
+                    <button id="printBtn" class="success" style="flex: 1; font-size: 1.1rem;">Print Sticker</button>
+                    <button id="disconnectBtn" class="secondary">Disconnect</button>
+                </div>
+
+                <div id="status" class="status">Idle. Connect printer to start.</div>
+            </section>
+
+            <section class="panel advanced-only">
+                <div class="row">
+                    <button id="infoBtn" class="secondary">Query Printer Info</button>
+                    <button id="clearLogBtn" class="secondary">Clear Log</button>
+                </div>
+                <label class="checkbox">
+                    <input id="protocolTestingInput" type="checkbox"> Enable raw diagnostics
+                </label>
+                <div id="diagControls" class="row hidden">
+                    <input id="rawHexInput" type="text" placeholder="Raw hex (e.g. 10 FF 40)">
+                    <button id="sendHexBtn" class="secondary">Send Hex</button>
+                </div>
+                <pre id="log"></pre>
+            </section>
+        </div>
+
+        <div class="preview-section">
+            <label>Live Preview</label>
+            <div style="position: relative;">
+                <canvas id="preview"></canvas>
+                <div id="previewLoading" class="loading-overlay hidden">Processing...</div>
+            </div>
+            
+            <div class="panel advanced-only">
+                <div class="stats">
+                    <div class="stat"><span class="stat-label">Paper:</span> <span id="paperStat">Unknown</span></div>
+                </div>
+            </div>
+
+            <!-- Remote Queue (Incoming) -->
+            <div id="remoteQueuePanel" class="panel hidden">
+                <label>Incoming Prints <span class="badge badge-live">Live</span></label>
+                <div id="remoteQueue" style="display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow: auto;">
+                    <p style="font-size: 0.8rem; margin: 0;">No incoming jobs yet.</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
+
+</html>
