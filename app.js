@@ -10,6 +10,7 @@ const simpleModeBtn = document.getElementById('simpleModeBtn');
 const advancedModeBtn = document.getElementById('advancedModeBtn');
 const remoteModeBtn = document.getElementById('remoteModeBtn');
 const lineArtBtn = document.getElementById('lineArtBtn');
+const noteCleanBtn = document.getElementById('noteCleanBtn');
 const photoDetailBtn = document.getElementById('photoDetailBtn');
 const asciiArtBtn = document.getElementById('asciiArtBtn');
 const aiSketchBtn = document.getElementById('aiSketchBtn');
@@ -467,6 +468,22 @@ function applyTreatment(ctx, w, h, style) {
                 imgData.data[i*4+3] = 255;
             }
         }
+    } else if (style === 'note-clean') {
+        const data = imgData.data;
+        // Sample corners to find paper color
+        const samples = [0, (w-1)*4, (h-1)*w*4, (h*w-1)*4];
+        let bgR = 0, bgG = 0, bgB = 0;
+        samples.forEach(s => { bgR += data[s]; bgG += data[s+1]; bgB += data[s+2]; });
+        bgR /= 4; bgG /= 4; bgB /= 4;
+
+        const sensitivity = 60; 
+        for (let i = 0; i < data.length; i += 4) {
+            const dr = data[i] - bgR, dg = data[i+1] - bgG, db = data[i+2] - bgB;
+            const dist = Math.sqrt(dr*dr + dg*dg + db*db);
+            const val = dist > sensitivity ? 0 : 255;
+            data[i] = data[i+1] = data[i+2] = val;
+            data[i+3] = 255;
+        }
     } else if (style === 'photo') {
         const lum = extractLum(imgData.data);
         for (let y = 0; y < h; y++) {
@@ -614,6 +631,7 @@ simpleModeBtn.onclick = () => setMode('simple');
 advancedModeBtn.onclick = () => setMode('advanced');
 remoteModeBtn.onclick = () => setMode('remote');
 lineArtBtn.onclick = () => { simpleImageStyle = 'line-art'; aiSketchImage = null; renderComposition(); };
+noteCleanBtn.onclick = () => { simpleImageStyle = 'note-clean'; aiSketchImage = null; renderComposition(); };
 photoDetailBtn.onclick = () => { simpleImageStyle = 'photo'; aiSketchImage = null; renderComposition(); };
 asciiArtBtn.onclick = () => generateAsciiArt();
 aiSketchBtn.onclick = () => generateAiSketch();
