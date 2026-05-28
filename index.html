@@ -353,7 +353,13 @@
                                 <option value="bottom">Bottom</option>
                             </select>
                         </label>
-                        <label>Black Threshold <input id="thresholdInput" type="range" min="20" max="235" value="128"></label>
+                        <label>
+                            Black Threshold 
+                            <div class="row" style="gap: 8px; align-items: center;">
+                                <input id="thresholdInput" type="range" min="20" max="235" value="128" style="flex: 1;">
+                                <button id="autoThresholdBtn" class="secondary" style="padding: 4px 12px; font-size: 0.75rem;">✨ Auto</button>
+                            </div>
+                        </label>
                         <label>Contrast <input id="contrastInput" type="range" min="-128" max="128" value="0"></label>
                         <label>Image Fit
                             <select id="imageFitInput">

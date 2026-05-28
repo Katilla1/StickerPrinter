@@ -29,6 +29,7 @@ const imageScaleInput = document.getElementById('imageScaleInput');
 const textPositionInput = document.getElementById('textPositionInput');
 const imageFitInput = document.getElementById('imageFitInput');
 const thresholdInput = document.getElementById('thresholdInput');
+const autoThresholdBtn = document.getElementById('autoThresholdBtn');
 const contrastInput = document.getElementById('contrastInput');
 const ditherInput = document.getElementById('ditherInput');
 const invertInput = document.getElementById('invertInput');
@@ -674,6 +675,48 @@ document.addEventListener('paste', (e) => {
 startRemoteBtn.onclick = () => initPeer();
 stopRemoteBtn.onclick = () => { peer.destroy(); sessionInfo.classList.add('hidden'); remoteStatus.textContent = 'Session stopped.'; };
 shareLink.onclick = () => { navigator.clipboard.writeText(shareLink.textContent); setStatus('Link copied!'); };
+
+autoThresholdBtn.onclick = () => runOtsuThreshold();
+
+function runOtsuThreshold() {
+    const ctx = previewCanvas.getContext('2d');
+    const data = ctx.getImageData(0, 0, previewCanvas.width, previewCanvas.height).data;
+    
+    // 1. Compute Histogram
+    const hist = new Int32Array(256);
+    for (let i = 0; i < data.length; i += 4) {
+        const avg = Math.floor((data[i] + data[i+1] + data[i+2]) / 3);
+        hist[avg]++;
+    }
+    
+    // 2. Otsu's Algorithm
+    let total = data.length / 4;
+    let sum = 0;
+    for (let i = 0; i < 256; i++) sum += i * hist[i];
+    
+    let sumB = 0, wB = 0, wF = 0, maxVar = 0, threshold = 128;
+    
+    for (let i = 0; i < 256; i++) {
+        wB += hist[i];
+        if (wB === 0) continue;
+        wF = total - wB;
+        if (wF === 0) break;
+        
+        sumB += i * hist[i];
+        let mB = sumB / wB;
+        let mF = (sum - sumB) / wF;
+        
+        let varBetween = wB * wF * (mB - mF) * (mB - mF);
+        if (varBetween > maxVar) {
+            maxVar = varBetween;
+            threshold = i;
+        }
+    }
+    
+    thresholdInput.value = threshold;
+    renderComposition();
+    setStatus(`Auto-Threshold set to ${threshold}`);
+}
 
 // --- Init ---
 const params = new URLSearchParams(window.location.search);
