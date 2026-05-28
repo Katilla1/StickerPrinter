@@ -11,6 +11,7 @@ const advancedModeBtn = document.getElementById('advancedModeBtn');
 const remoteModeBtn = document.getElementById('remoteModeBtn');
 const lineArtBtn = document.getElementById('lineArtBtn');
 const photoDetailBtn = document.getElementById('photoDetailBtn');
+const asciiArtBtn = document.getElementById('asciiArtBtn');
 const aiSketchBtn = document.getElementById('aiSketchBtn');
 const disconnectBtn = document.getElementById('disconnectBtn');
 const statusEl = document.getElementById('status');
@@ -474,6 +475,41 @@ function boxBlur(data, w, h, r) {
 }
 
 // --- AI Logic ---
+async function generateAsciiArt() {
+    if (!compositionImage) return setStatus('Upload image first.');
+    setStatus('Generating ASCII Art...');
+    
+    const cols = 48; // Standard width for D21
+    const aspect = compositionImage.height / compositionImage.width;
+    const rows = Math.floor(cols * aspect * 0.5); // Adjust for tall characters
+    
+    const canvas = document.createElement('canvas');
+    canvas.width = cols;
+    canvas.height = rows;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(compositionImage, 0, 0, cols, rows);
+    
+    const data = ctx.getImageData(0, 0, cols, rows).data;
+    const chars = '@#S%?*+;:,.. '; // Dark to light
+    let ascii = '';
+    
+    for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+            const i = (y * cols + x) * 4;
+            const avg = (data[i] + data[i+1] + data[i+2]) / 3;
+            const charIdx = Math.floor((avg / 255) * (chars.length - 1));
+            ascii += chars[charIdx];
+        }
+        ascii += '\n';
+    }
+    
+    messageInput.value = ascii;
+    compositionImage = null; // Clear image to show text art
+    fontSizeInput.value = 8; // Small font for ASCII
+    renderComposition();
+    setStatus('ASCII Art Generated!');
+}
+
 async function generateAiSketch() {
     if (!compositionImage) return setStatus('Upload image first.');
     previewLoading.classList.remove('hidden');
@@ -548,6 +584,7 @@ advancedModeBtn.onclick = () => setMode('advanced');
 remoteModeBtn.onclick = () => setMode('remote');
 lineArtBtn.onclick = () => { simpleImageStyle = 'line-art'; aiSketchImage = null; renderComposition(); };
 photoDetailBtn.onclick = () => { simpleImageStyle = 'photo'; aiSketchImage = null; renderComposition(); };
+asciiArtBtn.onclick = () => generateAsciiArt();
 aiSketchBtn.onclick = () => generateAiSketch();
 clearQueueBtn.onclick = clearQueueBtnTop.onclick = () => { remoteQueue.innerHTML = '<p style="font-size: 0.8rem;">No incoming jobs.</p>'; };
 
