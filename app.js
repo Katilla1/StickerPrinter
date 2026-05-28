@@ -22,6 +22,7 @@ const clearImageBtn = document.getElementById('clearImageBtn');
 const widthInput = document.getElementById('widthInput');
 const lengthInput = document.getElementById('lengthInput');
 const fontSizeInput = document.getElementById('fontSizeInput');
+const imageScaleInput = document.getElementById('imageScaleInput');
 const textPositionInput = document.getElementById('textPositionInput');
 const imageFitInput = document.getElementById('imageFitInput');
 const thresholdInput = document.getElementById('thresholdInput');
@@ -317,7 +318,8 @@ function renderComposition(customSettings = null) {
         imageFit: imageFitInput?.value || 'contain',
         image: compositionImage,
         aiImage: aiSketchImage,
-        fontSize: parseInt(fontSizeInput.value) || 42,
+        fontSize: parseInt(fontSizeInput.value) || 24,
+        imageScale: parseInt(imageScaleInput?.value || 100) / 100,
         textPosition: textPositionInput.value || 'center',
         advancedMode: advancedMode,
         simpleImageStyle: simpleImageStyle,
@@ -332,9 +334,12 @@ function renderComposition(customSettings = null) {
 
     const source = s.aiImage || s.image;
     if (source) {
-        const scale = s.imageFit === 'cover' 
+        let scale = s.imageFit === 'cover' 
             ? Math.max(s.width / source.width, s.height / source.height)
             : Math.min(s.width / source.width, s.height / source.height);
+        
+        scale *= s.imageScale;
+
         const dw = source.width * scale, dh = source.height * scale;
         ctx.drawImage(source, (s.width - dw) / 2, (s.height - dh) / 2, dw, dh);
         if (!s.advancedMode && !s.aiImage) {
@@ -509,6 +514,7 @@ printBtn.onclick = () => {
             dither: ditherInput?.checked,
             imageFit: imageFitInput?.value,
             fontSize: parseInt(fontSizeInput.value),
+            imageScale: parseInt(imageScaleInput?.value || 100) / 100,
             textPosition: textPositionInput.value,
             width: parseInt(widthInput.value),
             height: parseInt(lengthInput.value),
@@ -551,7 +557,7 @@ document.addEventListener('paste', (e) => {
     }
 });
 
-[messageInput, widthInput, lengthInput, fontSizeInput, textPositionInput, thresholdInput, contrastInput, imageFitInput, densityInput, ditherInput, invertInput, labelModeInput].forEach(el => {
+[messageInput, widthInput, lengthInput, fontSizeInput, imageScaleInput, textPositionInput, thresholdInput, contrastInput, imageFitInput, densityInput, ditherInput, invertInput, labelModeInput].forEach(el => {
     if (el) el.oninput = () => renderComposition();
 });
 
