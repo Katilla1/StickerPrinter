@@ -309,23 +309,28 @@ function addJobToQueue(job) {
 // --- Core Rendering & Processing ---
 function renderComposition(customSettings = null) {
     const s = {
-        width: parseInt(widthInput.value) || 384,
-        height: parseInt(lengthInput.value) || 240,
-        text: messageInput.value,
-        threshold: parseInt(thresholdInput.value),
-        contrast: parseInt(contrastInput?.value || 0),
+        width: Number(widthInput?.value) || 384,
+        height: Number(lengthInput?.value) || 240,
+        text: messageInput?.value || '',
+        threshold: Number(thresholdInput?.value) || 128,
+        contrast: Number(contrastInput?.value) || 0,
         invert: invertInput?.checked || false,
         dither: ditherInput?.checked || false,
         imageFit: imageFitInput?.value || 'contain',
         image: compositionImage,
         aiImage: aiSketchImage,
-        fontSize: parseInt(fontSizeInput.value) || 24,
-        imageScale: parseInt(imageScaleInput?.value || 100) / 100,
-        textPosition: textPositionInput.value || 'center',
-        advancedMode: advancedMode,
-        simpleImageStyle: simpleImageStyle,
-        ...customSettings
+        fontSize: Number(fontSizeInput?.value) || 24,
+        imageScale: Number(imageScaleInput?.value || 100) / 100,
+        textPosition: textPositionInput?.value || 'center',
+        advancedMode: !!advancedMode,
+        simpleImageStyle: simpleImageStyle || 'line-art',
+        ...(customSettings || {})
     };
+
+    if (isNaN(s.width) || isNaN(s.height)) {
+        appendLog(`Error: Invalid dimensions ${s.width}x${s.height}`);
+        return null;
+    }
 
     previewCanvas.width = s.width;
     previewCanvas.height = s.height;
@@ -334,15 +339,17 @@ function renderComposition(customSettings = null) {
     ctx.fillRect(0, 0, s.width, s.height);
 
     const source = s.aiImage || s.image;
-    if (source) {
+    if (source && source.width > 0) {
         let scale = s.imageFit === 'cover' 
             ? Math.max(s.width / source.width, s.height / source.height)
             : Math.min(s.width / source.width, s.height / source.height);
         
         scale *= s.imageScale;
+        if (isNaN(scale)) scale = 1;
 
         const dw = source.width * scale, dh = source.height * scale;
         ctx.drawImage(source, (s.width - dw) / 2, (s.height - dh) / 2, dw, dh);
+        
         if (!s.advancedMode && !s.aiImage) {
             applyTreatment(ctx, s.width, s.height, s.simpleImageStyle);
         }
@@ -369,13 +376,16 @@ function renderComposition(customSettings = null) {
     
     const imgData = ctx.getImageData(0, 0, s.width, s.height);
     const data = imgData.data;
-    const bytesPerRow = s.width / 8;
+    const bytesPerRow = Math.ceil(s.width / 8);
     const raster = new Uint8Array(bytesPerRow * s.height);
     const lum = new Float32Array(s.width * s.height);
-    const contrastFactor = (259 * (s.contrast + 255)) / (255 * (259 - s.contrast));
+    
+    const c = s.contrast;
+    const contrastFactor = (259 * (c + 255)) / (255 * (259 - c));
+    
     for (let i = 0; i < lum.length; i++) {
         let v = data[i*4] * 0.299 + data[i*4+1] * 0.587 + data[i*4+2] * 0.114;
-        if (s.contrast !== 0) v = contrastFactor * (v - 128) + 128;
+        if (c !== 0) v = contrastFactor * (v - 128) + 128;
         lum[i] = Math.max(0, Math.min(255, v));
     }
 
@@ -397,13 +407,15 @@ function renderComposition(customSettings = null) {
         for (let bx = 0; bx < bytesPerRow; bx++) {
             let byte = 0;
             for (let bit = 0; bit < 8; bit++) {
-                const x = bx * 8 + bit, i = y * s.width + x;
+                const x = bx * 8 + bit;
+                if (x >= s.width) continue;
+                const i = y * s.width + x;
                 const isBlack = lum[i] < s.threshold;
                 const finalBlack = s.invert ? !isBlack : isBlack;
                 if (finalBlack) byte |= (1 << (7 - bit));
                 const col = finalBlack ? 0 : 255;
                 data[i*4] = data[i*4+1] = data[i*4+2] = col;
-                data[i*4+3] = 255; // Force Opaque
+                data[i*4+3] = 255;
             }
             raster[y * bytesPerRow + bx] = byte;
         }
