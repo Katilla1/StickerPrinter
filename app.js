@@ -428,13 +428,44 @@ function renderComposition(customSettings = null) {
 function applyTreatment(ctx, w, h, style) {
     const imgData = ctx.getImageData(0, 0, w, h);
     if (style === 'line-art') {
-        const blurred = boxBlur(extractLum(imgData.data), w, h, 1);
-        for (let i = 0; i < blurred.length; i++) {
-            const x = i % w, y = Math.floor(i / w);
-            if (x === 0 || x === w - 1 || y === 0 || y === h - 1) continue;
-            const grad = Math.abs(blurred[i+1] - blurred[i-1]) + Math.abs(blurred[i+w] - blurred[i-w]);
-            const val = (grad > 30 || blurred[i] < 80) ? 0 : 255;
-            imgData.data[i*4] = imgData.data[i*4+1] = imgData.data[i*4+2] = val;
+        const lum = extractLum(imgData.data);
+        const output = new Uint8ClampedArray(lum.length);
+        
+        // --- Adaptive Gaussian Thresholding (JS Implementation) ---
+        // blockSize: how large an area to look at for local light level
+        // C: offset to make sure we only pick up actual ink
+        const blockSize = 25; 
+        const C = 10;
+        const radius = Math.floor(blockSize / 2);
+
+        // Pre-calculate blurred version (Gaussian approximation using box blur)
+        const blurred = boxBlur(lum, w, h, 2);
+
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                const i = y * w + x;
+                
+                // Calculate local mean in a window around the pixel
+                let sum = 0, count = 0;
+                for (let wy = -radius; wy <= radius; wy++) {
+                    const py = y + wy;
+                    if (py < 0 || py >= h) continue;
+                    for (let wx = -radius; wx <= radius; wx++) {
+                        const px = x + wx;
+                        if (px < 0 || px >= w) continue;
+                        sum += blurred[py * w + px];
+                        count++;
+                    }
+                }
+                const localMean = sum / count;
+                
+                // Adaptive step: if pixel is darker than local surroundings - C, it's ink
+                const isInk = blurred[i] < (localMean - C);
+                const val = isInk ? 0 : 255;
+                
+                imgData.data[i*4] = imgData.data[i*4+1] = imgData.data[i*4+2] = val;
+                imgData.data[i*4+3] = 255;
+            }
         }
     } else if (style === 'photo') {
         const lum = extractLum(imgData.data);
