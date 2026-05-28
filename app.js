@@ -26,6 +26,8 @@ const openDrawBtn = document.getElementById('openDrawBtn');
 const drawingPad = document.getElementById('drawingPad');
 const drawingCanvas = document.getElementById('drawingCanvas');
 const clearDrawBtn = document.getElementById('clearDrawBtn');
+const undoDrawBtn = document.getElementById('undoDrawBtn');
+const penSizeInput = document.getElementById('penSizeInput');
 const widthInput = document.getElementById('widthInput');
 const lengthInput = document.getElementById('lengthInput');
 const fontSizeInput = document.getElementById('fontSizeInput');
@@ -62,6 +64,7 @@ const clearQueueBtnTop = document.getElementById('clearQueueBtnTop');
 let compositionImage = null;
 let aiSketchImage = null;
 let drawingLayer = null;
+let drawingUndoStack = [];
 let advancedMode = false;
 let simpleImageStyle = 'line-art';
 let onnxSessionPromise = null;
@@ -683,7 +686,23 @@ clearDrawBtn.onclick = () => {
     const ctx = drawingCanvas.getContext('2d');
     ctx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
     drawingLayer = null;
+    drawingUndoStack = [];
     renderComposition();
+};
+
+undoDrawBtn.onclick = () => {
+    if (drawingUndoStack.length > 0) {
+        const ctx = drawingCanvas.getContext('2d');
+        const lastState = drawingUndoStack.pop();
+        ctx.putImageData(lastState, 0, 0);
+        drawingLayer = drawingCanvas;
+        renderComposition();
+    } else {
+        const ctx = drawingCanvas.getContext('2d');
+        ctx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+        drawingLayer = null;
+        renderComposition();
+    }
 };
 
 function initDrawingPad() {
@@ -696,7 +715,6 @@ function initDrawingPad() {
     drawingCanvas.height = rect.height;
     
     const ctx = drawingCanvas.getContext('2d');
-    ctx.lineWidth = 3;
     ctx.lineCap = 'round';
     ctx.strokeStyle = '#000000';
     
@@ -708,7 +726,17 @@ function initDrawingPad() {
         return { x: ev.clientX - r.left, y: ev.clientY - r.top };
     };
 
-    const start = (e) => { drawing = true; draw(e); };
+    const saveState = () => {
+        drawingUndoStack.push(ctx.getImageData(0, 0, drawingCanvas.width, drawingCanvas.height));
+        if (drawingUndoStack.length > 30) drawingUndoStack.shift();
+    };
+
+    const start = (e) => { 
+        saveState();
+        drawing = true; 
+        draw(e); 
+    };
+    
     const end = () => { 
         drawing = false; 
         ctx.beginPath(); 
@@ -719,6 +747,7 @@ function initDrawingPad() {
     const draw = (e) => {
         if (!drawing) return;
         const pos = getPos(e);
+        ctx.lineWidth = parseInt(penSizeInput.value) || 3;
         ctx.lineTo(pos.x, pos.y);
         ctx.stroke();
         ctx.beginPath();
