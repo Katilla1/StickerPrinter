@@ -277,9 +277,7 @@
         }
 
         /* Guest Mode Adjustments */
-        body.guest-mode .advanced-only,
         body.guest-mode #remoteModeBtn,
-        body.guest-mode #advancedModeBtn,
         body.guest-mode #connectBtn,
         body.guest-mode #disconnectBtn,
         body.guest-mode .stats {
@@ -287,8 +285,14 @@
         }
 
         body.guest-mode main {
-            grid-template-columns: 1fr;
-            max-width: 600px;
+            grid-template-columns: 1fr 384px;
+            max-width: 1000px;
+        }
+
+        @media (max-width: 900px) {
+            body.guest-mode main {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
@@ -343,6 +347,7 @@
                             </select>
                         </label>
                         <label>Black Threshold <input id="thresholdInput" type="range" min="20" max="235" value="128"></label>
+                        <label>Contrast <input id="contrastInput" type="range" min="-128" max="128" value="0"></label>
                         <label>Image Fit
                             <select id="imageFitInput">
                                 <option value="contain" selected>Contain</option>

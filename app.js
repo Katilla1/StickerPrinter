@@ -25,6 +25,7 @@ const fontSizeInput = document.getElementById('fontSizeInput');
 const textPositionInput = document.getElementById('textPositionInput');
 const imageFitInput = document.getElementById('imageFitInput');
 const thresholdInput = document.getElementById('thresholdInput');
+const contrastInput = document.getElementById('contrastInput');
 const ditherInput = document.getElementById('ditherInput');
 const invertInput = document.getElementById('invertInput');
 const densityInput = document.getElementById('densityInput');
@@ -306,7 +307,7 @@ function addJobToQueue(job) {
 
 // --- Core Rendering & Processing ---
 function renderComposition(customSettings = null) {
-    const s = customSettings || {
+    const s = {
         width: parseInt(widthInput.value) || 384,
         height: parseInt(lengthInput.value) || 240,
         text: messageInput.value,
@@ -317,7 +318,10 @@ function renderComposition(customSettings = null) {
         image: compositionImage,
         aiImage: aiSketchImage,
         fontSize: parseInt(fontSizeInput.value) || 42,
-        textPosition: textPositionInput.value || 'center'
+        textPosition: textPositionInput.value || 'center',
+        advancedMode: advancedMode,
+        simpleImageStyle: simpleImageStyle,
+        ...customSettings
     };
 
     previewCanvas.width = s.width;
@@ -333,21 +337,27 @@ function renderComposition(customSettings = null) {
             : Math.min(s.width / source.width, s.height / source.height);
         const dw = source.width * scale, dh = source.height * scale;
         ctx.drawImage(source, (s.width - dw) / 2, (s.height - dh) / 2, dw, dh);
-        if (!advancedMode && !s.aiImage) applyTreatment(ctx, s.width, s.height);
+        if (!s.advancedMode && !s.aiImage) {
+            applyTreatment(ctx, s.width, s.height, s.simpleImageStyle);
+        }
     }
 
     if (s.text) {
-        ctx.font = `bold ${s.fontSize}px sans-serif`;
+        ctx.font = `bold ${s.fontSize}px ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas, monospace`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.strokeStyle = 'white';
         ctx.lineWidth = s.fontSize/10;
         ctx.fillStyle = 'black';
         const lines = s.text.split('\n');
-        const yStart = s.textPosition === 'top' ? s.fontSize : s.textPosition === 'bottom' ? s.height - (lines.length * s.fontSize) : (s.height - (lines.length-1)*s.fontSize)/2;
+        const lineHeight = s.fontSize * 1.1;
+        const totalHeight = lines.length * lineHeight;
+        const yStart = s.textPosition === 'top' ? s.fontSize : s.textPosition === 'bottom' ? s.height - totalHeight + (s.fontSize/2) : (s.height - totalHeight + lineHeight)/2;
+        
         lines.forEach((line, i) => {
-            const y = yStart + i * s.fontSize * 1.2;
-            ctx.strokeText(line, s.width/2, y); ctx.fillText(line, s.width/2, y);
+            const y = yStart + i * lineHeight;
+            ctx.strokeText(line, s.width/2, y); 
+            ctx.fillText(line, s.width/2, y);
         });
     }
     
@@ -356,9 +366,14 @@ function renderComposition(customSettings = null) {
     const bytesPerRow = s.width / 8;
     const raster = new Uint8Array(bytesPerRow * s.height);
     const lum = new Float32Array(s.width * s.height);
-    for (let i = 0; i < lum.length; i++) lum[i] = data[i*4] * 0.299 + data[i*4+1] * 0.587 + data[i*4+2] * 0.114;
+    const contrastFactor = (259 * (s.contrast + 255)) / (255 * (259 - s.contrast));
+    for (let i = 0; i < lum.length; i++) {
+        let v = data[i*4] * 0.299 + data[i*4+1] * 0.587 + data[i*4+2] * 0.114;
+        if (s.contrast !== 0) v = contrastFactor * (v - 128) + 128;
+        lum[i] = Math.max(0, Math.min(255, v));
+    }
 
-    if (advancedMode && s.dither) {
+    if (s.advancedMode && s.dither) {
         for (let y = 0; y < s.height; y++) {
             for (let x = 0; x < s.width; x++) {
                 const i = y * s.width + x;
@@ -377,7 +392,7 @@ function renderComposition(customSettings = null) {
             let byte = 0;
             for (let bit = 0; bit < 8; bit++) {
                 const x = bx * 8 + bit, i = y * s.width + x;
-                const isBlack = (advancedMode && s.dither) ? lum[i] < s.threshold : lum[i] < s.threshold;
+                const isBlack = (s.advancedMode && s.dither) ? lum[i] < s.threshold : lum[i] < s.threshold;
                 const finalBlack = s.invert ? !isBlack : isBlack;
                 if (finalBlack) byte |= (1 << (7 - bit));
                 const col = finalBlack ? 0 : 255;
@@ -390,9 +405,9 @@ function renderComposition(customSettings = null) {
     return { data: raster, width: s.width, rows: s.height, bytesPerRow };
 }
 
-function applyTreatment(ctx, w, h) {
+function applyTreatment(ctx, w, h, style) {
     const imgData = ctx.getImageData(0, 0, w, h);
-    if (simpleImageStyle === 'line-art') {
+    if (style === 'line-art') {
         const blurred = boxBlur(extractLum(imgData.data), w, h, 1);
         for (let i = 0; i < blurred.length; i++) {
             const x = i % w, y = Math.floor(i / w);
@@ -401,7 +416,7 @@ function applyTreatment(ctx, w, h) {
             const val = (grad > 30 || blurred[i] < 80) ? 0 : 255;
             imgData.data[i*4] = imgData.data[i*4+1] = imgData.data[i*4+2] = val;
         }
-    } else if (simpleImageStyle === 'photo') {
+    } else if (style === 'photo') {
         const lum = extractLum(imgData.data);
         for (let y = 0; y < h; y++) {
             for (let x = 0; x < w; x++) {
@@ -487,9 +502,20 @@ disconnectBtn.onclick = () => { printerApi.disconnect(); setStatus('State reset.
 printBtn.onclick = () => {
     if (isGuest) {
         const settings = {
-            text: messageInput.value, threshold: parseInt(thresholdInput.value), invert: invertInput?.checked,
-            dither: ditherInput?.checked, imageFit: imageFitInput?.value, fontSize: parseInt(fontSizeInput.value),
-            textPosition: textPositionInput.value, width: parseInt(widthInput.value), height: parseInt(lengthInput.value)
+            text: messageInput.value,
+            threshold: parseInt(thresholdInput.value),
+            contrast: parseInt(contrastInput?.value || 0),
+            invert: invertInput?.checked,
+            dither: ditherInput?.checked,
+            imageFit: imageFitInput?.value,
+            fontSize: parseInt(fontSizeInput.value),
+            textPosition: textPositionInput.value,
+            width: parseInt(widthInput.value),
+            height: parseInt(lengthInput.value),
+            advancedMode: advancedMode,
+            simpleImageStyle: simpleImageStyle,
+            density: parseInt(densityInput?.value) || 1,
+            labelMode: labelModeInput?.checked
         };
         const img = aiSketchImage || compositionImage ? previewCanvas.toDataURL('image/png') : null;
         connections.forEach(c => c.send({ type: 'print', text: messageInput.value, image: img, settings }));
@@ -525,7 +551,7 @@ document.addEventListener('paste', (e) => {
     }
 });
 
-[messageInput, widthInput, lengthInput, fontSizeInput, textPositionInput, thresholdInput, imageFitInput, densityInput, ditherInput, invertInput, labelModeInput].forEach(el => {
+[messageInput, widthInput, lengthInput, fontSizeInput, textPositionInput, thresholdInput, contrastInput, imageFitInput, densityInput, ditherInput, invertInput, labelModeInput].forEach(el => {
     if (el) el.oninput = () => renderComposition();
 });
 
