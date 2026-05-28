@@ -397,11 +397,12 @@ function renderComposition(customSettings = null) {
             let byte = 0;
             for (let bit = 0; bit < 8; bit++) {
                 const x = bx * 8 + bit, i = y * s.width + x;
-                const isBlack = (s.advancedMode && s.dither) ? lum[i] < s.threshold : lum[i] < s.threshold;
+                const isBlack = lum[i] < s.threshold;
                 const finalBlack = s.invert ? !isBlack : isBlack;
                 if (finalBlack) byte |= (1 << (7 - bit));
                 const col = finalBlack ? 0 : 255;
                 data[i*4] = data[i*4+1] = data[i*4+2] = col;
+                data[i*4+3] = 255; // Force Opaque
             }
             raster[y * bytesPerRow + bx] = byte;
         }
