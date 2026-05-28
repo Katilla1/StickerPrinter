@@ -11,6 +11,7 @@ const advancedModeBtn = document.getElementById('advancedModeBtn');
 const remoteModeBtn = document.getElementById('remoteModeBtn');
 const lineArtBtn = document.getElementById('lineArtBtn');
 const noteCleanBtn = document.getElementById('noteCleanBtn');
+const highPassBtn = document.getElementById('highPassBtn');
 const photoDetailBtn = document.getElementById('photoDetailBtn');
 const asciiArtBtn = document.getElementById('asciiArtBtn');
 const aiSketchBtn = document.getElementById('aiSketchBtn');
@@ -484,6 +485,14 @@ function applyTreatment(ctx, w, h, style) {
             data[i] = data[i+1] = data[i+2] = val;
             data[i+3] = 255;
         }
+    } else if (style === 'high-pass') {
+        const lum = extractLum(imgData.data);
+        const blurred = boxBlur(lum, w, h, 20); 
+        for (let i = 0; i < lum.length; i++) {
+            const val = Math.max(0, Math.min(255, lum[i] - blurred[i] + 128));
+            imgData.data[i*4] = imgData.data[i*4+1] = imgData.data[i*4+2] = val;
+            imgData.data[i*4+3] = 255;
+        }
     } else if (style === 'photo') {
         const lum = extractLum(imgData.data);
         for (let y = 0; y < h; y++) {
@@ -632,6 +641,7 @@ advancedModeBtn.onclick = () => setMode('advanced');
 remoteModeBtn.onclick = () => setMode('remote');
 lineArtBtn.onclick = () => { simpleImageStyle = 'line-art'; aiSketchImage = null; renderComposition(); };
 noteCleanBtn.onclick = () => { simpleImageStyle = 'note-clean'; aiSketchImage = null; renderComposition(); };
+highPassBtn.onclick = () => { simpleImageStyle = 'high-pass'; aiSketchImage = null; renderComposition(); };
 photoDetailBtn.onclick = () => { simpleImageStyle = 'photo'; aiSketchImage = null; renderComposition(); };
 asciiArtBtn.onclick = () => generateAsciiArt();
 aiSketchBtn.onclick = () => generateAiSketch();
