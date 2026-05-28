@@ -41,6 +41,9 @@ const densityInput = document.getElementById('densityInput');
 const labelModeInput = document.getElementById('labelModeInput');
 const previewCanvas = document.getElementById('preview');
 const previewLoading = document.getElementById('previewLoading');
+const saveGalleryBtn = document.getElementById('saveGalleryBtn');
+const galleryPanel = document.getElementById('galleryPanel');
+const galleryGrid = document.getElementById('galleryGrid');
 
 // --- Remote / Networking ---
 const editorPanel = document.getElementById('editorPanel');
@@ -300,13 +303,13 @@ function addJobToQueue(job) {
 
     prevBtn.onclick = async () => {
         const img = await loadImg();
-        renderComposition({ ...job.settings, image: img, aiImage: null });
+        renderComposition({ ...job.settings, image: img, aiImage: null, drawingLayer: null });
         setStatus(`Previewing job from ${job.sender}`);
     };
 
     prntBtn.onclick = async () => {
         const img = await loadImg();
-        const raster = renderComposition({ ...job.settings, image: img, aiImage: null });
+        const raster = renderComposition({ ...job.settings, image: img, aiImage: null, drawingLayer: null });
         try { await printerApi.printComposition(raster); } catch(e) {}
         renderComposition();
     };
@@ -636,7 +639,8 @@ printBtn.onclick = () => {
             density: parseInt(densityInput?.value) || 1,
             labelMode: labelModeInput?.checked
         };
-        const img = aiSketchImage || compositionImage ? previewCanvas.toDataURL('image/png') : null;
+        const hasContent = aiSketchImage || compositionImage || drawingLayer || messageInput.value;
+        const img = hasContent ? previewCanvas.toDataURL('image/png') : null;
         connections.forEach(c => c.send({ type: 'print', text: messageInput.value, image: img, settings }));
         setStatus('Sent to host!');
     } else printerApi.printComposition();
@@ -789,7 +793,72 @@ function runOtsuThreshold() {
     setStatus(`Auto-Threshold set to ${threshold}`);
 }
 
+saveGalleryBtn.onclick = () => {
+    const sticker = {
+        id: Date.now(),
+        image: previewCanvas.toDataURL('image/png'),
+        text: messageInput.value,
+        settings: {
+            threshold: thresholdInput.value,
+            contrast: contrastInput.value,
+            invert: invertInput.checked,
+            dither: ditherInput.checked,
+            imageFit: imageFitInput.value,
+            fontSize: fontSizeInput.value,
+            imageScale: imageScaleInput.value,
+            textPosition: textPositionInput.value,
+            advancedMode: advancedMode,
+            simpleImageStyle: simpleImageStyle
+        }
+    };
+    const gallery = JSON.parse(localStorage.getItem('stickerGallery') || '[]');
+    gallery.unshift(sticker);
+    localStorage.setItem('stickerGallery', JSON.stringify(gallery.slice(0, 24))); // Keep last 24
+    renderGallery();
+    setStatus('Saved to gallery!');
+};
+
+function renderGallery() {
+    const gallery = JSON.parse(localStorage.getItem('stickerGallery') || '[]');
+    if (gallery.length > 0) {
+        galleryPanel.classList.remove('hidden');
+        galleryGrid.innerHTML = '';
+        gallery.forEach(item => {
+            const el = document.createElement('div');
+            el.style = 'border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; position: relative; transition: transform 0.1s;';
+            el.innerHTML = `<img src="${item.image}" style="width: 100%; display: block;">`;
+            el.onmouseenter = () => el.style.transform = 'scale(1.05)';
+            el.onmouseleave = () => el.style.transform = 'scale(1)';
+            el.onclick = () => {
+                messageInput.value = item.text || '';
+                thresholdInput.value = item.settings.threshold;
+                contrastInput.value = item.settings.contrast;
+                invertInput.checked = item.settings.invert;
+                ditherInput.checked = item.settings.dither;
+                imageFitInput.value = item.settings.imageFit;
+                fontSizeInput.value = item.settings.fontSize;
+                imageScaleInput.value = item.settings.imageScale;
+                textPositionInput.value = item.settings.textPosition;
+                simpleImageStyle = item.settings.simpleImageStyle;
+                
+                // Load image into composition
+                const img = new Image();
+                img.onload = () => { 
+                    compositionImage = img; 
+                    aiSketchImage = null; 
+                    drawingLayer = null; 
+                    renderComposition(); 
+                };
+                img.src = item.image;
+                setStatus('Loaded from gallery.');
+            };
+            galleryGrid.appendChild(el);
+        });
+    }
+}
+
 // --- Init ---
+renderGallery();
 const params = new URLSearchParams(window.location.search);
 if (params.has('peer')) {
     isGuest = true; hostPeerId = params.get('peer');

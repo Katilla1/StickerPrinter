@@ -438,8 +438,17 @@
             <div style="position: relative;">
                 <canvas id="preview"></canvas>
                 <div id="previewLoading" class="loading-overlay hidden">Processing...</div>
+                <button id="saveGalleryBtn" class="success" style="position: absolute; bottom: 12px; right: 12px; padding: 6px 14px; font-size: 0.8rem; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">Save to Gallery</button>
             </div>
             
+            <!-- Gallery Panel -->
+            <div id="galleryPanel" class="panel hidden">
+                <label>Saved Stickers</label>
+                <div id="galleryGrid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-height: 300px; overflow: auto; padding: 4px;">
+                    <p style="font-size: 0.8rem; margin: 0; grid-column: span 2;">No saved stickers yet.</p>
+                </div>
+            </div>
+
             <div class="panel advanced-only">
                 <div class="stats">
                     <div class="stat"><span class="stat-label">Battery:</span> <span id="batteryStat">--%</span></div>
