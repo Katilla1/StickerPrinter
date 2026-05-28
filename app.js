@@ -22,6 +22,10 @@ const logEl = document.getElementById('log');
 const messageInput = document.getElementById('messageInput');
 const imageInput = document.getElementById('imageInput');
 const clearImageBtn = document.getElementById('clearImageBtn');
+const openDrawBtn = document.getElementById('openDrawBtn');
+const drawingPad = document.getElementById('drawingPad');
+const drawingCanvas = document.getElementById('drawingCanvas');
+const clearDrawBtn = document.getElementById('clearDrawBtn');
 const widthInput = document.getElementById('widthInput');
 const lengthInput = document.getElementById('lengthInput');
 const fontSizeInput = document.getElementById('fontSizeInput');
@@ -54,6 +58,7 @@ const clearQueueBtnTop = document.getElementById('clearQueueBtnTop');
 // --- Application State ---
 let compositionImage = null;
 let aiSketchImage = null;
+let drawingLayer = null;
 let advancedMode = false;
 let simpleImageStyle = 'line-art';
 let onnxSessionPromise = null;
@@ -342,8 +347,8 @@ function renderComposition(customSettings = null) {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, s.width, s.height);
 
-    const source = s.aiImage || s.image;
-    if (source && source.width > 0) {
+    const source = s.aiImage || s.image || drawingLayer;
+    if (source && (source.width > 0 || source.tagName === 'CANVAS')) {
         let scale = s.imageFit === 'cover' 
             ? Math.max(s.width / source.width, s.height / source.height)
             : Math.min(s.width / source.width, s.height / source.height);
@@ -657,7 +662,73 @@ imageInput.onchange = (e) => {
     }
 };
 
-clearImageBtn.onclick = () => { compositionImage = null; aiSketchImage = null; imageInput.value = ''; renderComposition(); };
+clearImageBtn.onclick = () => { 
+    compositionImage = null; 
+    aiSketchImage = null; 
+    drawingLayer = null; 
+    imageInput.value = ''; 
+    renderComposition(); 
+};
+
+openDrawBtn.onclick = () => {
+    drawingPad.classList.toggle('hidden');
+    if (!drawingPad.classList.contains('hidden')) initDrawingPad();
+};
+
+clearDrawBtn.onclick = () => {
+    const ctx = drawingCanvas.getContext('2d');
+    ctx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+    drawingLayer = null;
+    renderComposition();
+};
+
+function initDrawingPad() {
+    if (drawingCanvas.dataset.initialized) return;
+    drawingCanvas.dataset.initialized = "true";
+    
+    // Set actual resolution to match display size
+    const rect = drawingCanvas.getBoundingClientRect();
+    drawingCanvas.width = rect.width;
+    drawingCanvas.height = rect.height;
+    
+    const ctx = drawingCanvas.getContext('2d');
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#000000';
+    
+    let drawing = false;
+
+    const getPos = (e) => {
+        const r = drawingCanvas.getBoundingClientRect();
+        const ev = e.touches ? e.touches[0] : e;
+        return { x: ev.clientX - r.left, y: ev.clientY - r.top };
+    };
+
+    const start = (e) => { drawing = true; draw(e); };
+    const end = () => { 
+        drawing = false; 
+        ctx.beginPath(); 
+        drawingLayer = drawingCanvas; 
+        renderComposition(); 
+    };
+    
+    const draw = (e) => {
+        if (!drawing) return;
+        const pos = getPos(e);
+        ctx.lineTo(pos.x, pos.y);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(pos.x, pos.y);
+    };
+
+    drawingCanvas.onmousedown = start;
+    drawingCanvas.onmousemove = draw;
+    window.addEventListener('mouseup', end);
+    
+    drawingCanvas.ontouchstart = (e) => { e.preventDefault(); start(e); };
+    drawingCanvas.ontouchmove = (e) => { e.preventDefault(); draw(e); };
+    drawingCanvas.ontouchend = end;
+}
 
 document.addEventListener('paste', (e) => {
     const item = Array.from(e.clipboardData.items).find(x => x.type.startsWith('image'));
