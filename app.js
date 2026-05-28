@@ -313,6 +313,7 @@ function renderComposition(customSettings = null) {
         height: parseInt(lengthInput.value) || 240,
         text: messageInput.value,
         threshold: parseInt(thresholdInput.value),
+        contrast: parseInt(contrastInput?.value || 0),
         invert: invertInput?.checked || false,
         dither: ditherInput?.checked || false,
         imageFit: imageFitInput?.value || 'contain',
