@@ -1,37 +1,47 @@
-# D21 Cloud Sticker Printer 🖨️✨
+# StickerPrinter 🖨️✨
+### The Ultimate Web-to-Hardware Thermal Printing Suite
 
-A high-performance, reverse-engineered web application for the **D21 Thermal Printer** (Zhuhai Jiuyin protocol). This app allows for local Bluetooth printing and remote P2P printing using PeerJS.
+A high-performance, browser-native application for the **D21 Thermal Printer**. This suite combines reverse-engineered hardware protocols with advanced computer vision and P2P networking to create a seamless, collaborative sticker-printing experience.
 
-## 🌟 Key Features
-- **Native D21 Protocol:** Fully reverse-engineered handshake and raster streaming for 100% hardware compatibility.
-- **AI Sketch ✨:** Integrated ONNX line-art model to transform photos into clean printable outlines.
-- **Remote Printing:** Start a session, share a link, and let friends send stickers directly to your printer from anywhere.
-- **Auto-Crop:** Automatically trims whitespace to minimize paper waste.
-- **Pro Features:** Live battery monitoring, adjustable print density, dithering, and custom thresholding.
-- **Zero-Install:** Runs entirely in the browser via Web Bluetooth.
+## 🚀 Key Features
 
-## 🚀 Getting Started
-1. **Live App:** Visit `https://printer.korgai.ink` (or your deployed URL).
-2. **Connect:** Ensure your D21 is ON and not paired with any other device. Click **Connect Printer**.
-3. **Design:** Type text or upload an image. Use the **AI Sketch** button for the best results with photos.
-4. **Print:** Hit **Print Sticker**.
+### 🎨 Creative Studio
+- **Integrated Drawing Pad:** Draw directly on the screen with your cursor or finger.
+- **AI Sketch ✨:** Transform complex photos into clean line art using on-device AI (ONNX Runtime).
+- **Auto ASCII Art 🔠:** Intelligent image-to-text conversion with monospace alignment.
+- **Professional Image Processing:**
+    - **Adaptive Line Art:** Extracts ink from paper even in uneven lighting.
+    - **High Pass Filter ⚡️:** Professional lighting normalization for clean document extraction.
+    - **Note Clean 📝:** Color-distance algorithm for isolating ink from vibrant Post-it notes.
+    - **Auto-Threshold (Otsu's Method):** Mathematical one-click "magic" contrast adjustment.
 
-## 🌐 Remote Printing
-1. Go to the **Remote** tab.
-2. Click **Start Remote Session**.
-3. Copy the unique link and send it to a friend.
-4. When they send a design, it will appear in your **Incoming Prints** queue.
-5. **Preview** their design to verify it, then click **Print**.
+### 🌐 Collaborative Printing
+- **Remote Host/Guest Sessions:** Share a link and let anyone in the world send stickers to your printer via PeerJS (P2P).
+- **Shared Artistic Intent:** All image treatments, scaling, and font settings are synced between peers.
+- **Job Queue:** Host can preview, adjust, and approve incoming remote jobs before printing.
 
-## 🛠️ Technical Details
-- **Protocol:** Zhuhai Jiuyin ( proprietary 51 78 wrapper).
-- **Communication:** Web Bluetooth API (GATT).
-- **Networking:** PeerJS (WebRTC) for peer-to-peer job transfers.
-- **Image Processing:** HTML5 Canvas + ONNX Runtime for AI line-art extraction.
+### ⚙️ Hardware Integration
+- **Direct Bluetooth Control:** Zero-install connection via Web Bluetooth API.
+- **Native D21 Protocol:** Full handshake, battery monitoring, and density control.
+- **Precision Sizing:** Real-time Font Size and Image Scaling sliders.
+- **Clipboard Integration:** Paste screenshots or copied images directly into the workspace.
 
-## 📜 Legal & Safety
-- **Privacy:** No data is stored on any server. Jobs are transferred directly between peers.
-- **Compatibility:** Designed specifically for D21-series thermal printers.
+## 🛠️ Tech Stack
+- **Frontend:** Vanilla JS / HTML5 / CSS3
+- **Hardware:** Web Bluetooth API (GATT)
+- **Networking:** PeerJS (WebRTC) for secure P2P transfers.
+- **AI/ML:** ONNX Runtime Web for on-device inference.
+- **Processing:** HTML5 Canvas API for real-time rasterization.
+
+## 🏃‍♂️ Getting Started
+1. Open the app in a Chrome-based browser.
+2. Click **Connect Printer** and select your `D21` device.
+3. Design your sticker using the **Text**, **Image**, or **Draw** tools.
+4. Use **Simple** mode for quick edits or **Advanced** for precise control over threshold, dithering, and density.
+5. Hit **Print Sticker**!
+
+## 📜 Development & Protocol
+This project reverse-engineers the Zhuhai Jiuyin thermal protocol. See `DEVELOPMENT.md` for a deep dive into the handshake, packet structure, and raster streaming logic.
 
 ---
-*Built with ❤️ for the thermal printing community.*
+*Built for precision and creativity. Ready for 203 DPI excellence.*
