@@ -6,6 +6,7 @@ const PACKET_SIZE_BYTES = 64;
 const connectBtn = document.getElementById('connectBtn');
 const testPrintBtn = document.getElementById('testPrintBtn');
 const printBtn = document.getElementById('printBtn');
+const sendRelayBtn = document.getElementById('sendRelayBtn');
 const simpleModeBtn = document.getElementById('simpleModeBtn');
 const advancedModeBtn = document.getElementById('advancedModeBtn');
 const remoteModeBtn = document.getElementById('remoteModeBtn');
@@ -59,6 +60,9 @@ const remoteQueue = document.getElementById('remoteQueue');
 const remoteQueuePanel = document.getElementById('remoteQueuePanel');
 const clearQueueBtn = document.getElementById('clearQueueBtn');
 const clearQueueBtnTop = document.getElementById('clearQueueBtnTop');
+const RELAY_JOB_URL = window.WHITEPAD_RELAY_JOB_URL
+    || localStorage.getItem('whitepadRelayJobUrl')
+    || 'https://printer.korgai.ink/api/jobs';
 
 // --- Application State ---
 let compositionImage = null;
@@ -319,6 +323,52 @@ function addJobToQueue(job) {
     
     remoteQueue.prepend(jobEl);
     if (remoteQueue.querySelector('p')) remoteQueue.querySelector('p').remove();
+}
+
+function encodeWpd1(raster) {
+    const bytes = new Uint8Array(9 + raster.data.length);
+    bytes[0] = 0x57; // W
+    bytes[1] = 0x50; // P
+    bytes[2] = 0x44; // D
+    bytes[3] = 0x31; // 1
+    bytes[4] = raster.width & 0xFF;
+    bytes[5] = (raster.width >> 8) & 0xFF;
+    bytes[6] = raster.rows & 0xFF;
+    bytes[7] = (raster.rows >> 8) & 0xFF;
+    bytes[8] = 1;
+    bytes.set(raster.data, 9);
+    return bytes;
+}
+
+async function sendCompositionToRelay() {
+    const raster = renderComposition();
+    if (!raster) {
+        setStatus('Nothing to send.');
+        return;
+    }
+
+    const payload = encodeWpd1(raster);
+    try {
+        setStatus('Queueing to relay...');
+        const response = await fetch(RELAY_JOB_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/octet-stream',
+                'X-Whitepad-Source': 'web',
+                'X-Whitepad-Format': 'WPD1',
+            },
+            body: payload,
+        });
+
+        if (!response.ok) {
+            throw new Error(`Relay returned ${response.status}`);
+        }
+
+        setStatus('Queued for ESP32 relay.');
+    } catch (e) {
+        setStatus(`Relay upload failed: ${e.message}`);
+        throw e;
+    }
 }
 
 // --- Core Rendering & Processing ---
@@ -647,6 +697,10 @@ printBtn.onclick = () => {
         connections.forEach(c => c.send({ type: 'print', text: messageInput.value, image: img, settings }));
         setStatus('Sent to host!');
     } else printerApi.printComposition();
+};
+
+sendRelayBtn.onclick = () => {
+    sendCompositionToRelay().catch(() => {});
 };
 
 simpleModeBtn.onclick = () => setMode('simple');
